@@ -1320,16 +1320,21 @@
     phoneModal.classList.remove('visible');
   }
 
-  // usa o stream recebido do celular como fonte de camera/gravacao
+  // usa o stream recebido do celular como fonte de camera/gravacao.
+  // o evento 'stream' do PeerJS pode disparar varias vezes com o MESMO
+  // stream - por isso NUNCA paramos o stream novo (so um anterior diferente)
   function usePhoneStream(remoteStream) {
+    if (recordStream === remoteStream) { previewEl.play().catch(() => {}); return; }
     const wasListening = isListening;
     if (mediaRecorder) finalizeSegment(currentIndex, false);
-    if (recordStream) recordStream.getTracks().forEach(t => t.stop());
+    // para o stream anterior (local ou remoto antigo), mas nunca o novo
+    if (recordStream && recordStream !== remoteStream) {
+      recordStream.getTracks().forEach(t => t.stop());
+    }
     recordStream = remoteStream;
     previewEl.srcObject = remoteStream;
     previewEl.style.transform = 'none'; // celular ja vem na orientacao certa
     previewEl.style.display = 'block';
-    // forca o play quando os frames chegarem (evita tela preta)
     previewEl.muted = true;
     const tryPlay = () => previewEl.play().catch(() => {});
     previewEl.onloadedmetadata = tryPlay;
