@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KinePrompt</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     --bg: #0d0d0f;
@@ -644,6 +645,7 @@
   // filma e envia o video pro PC (host) via WebRTC (PeerJS).
   // ===============================================================
   const camHostId = new URLSearchParams(location.search).get('cam');
+  console.log('[KinePrompt] build v6 — modo:', camHostId ? 'CELULAR (camera)' : 'PC (diretor)');
   if (camHostId) {
     runPhoneCameraMode(camHostId);
     return; // nao inicializa o teleprompter neste device
@@ -1336,10 +1338,25 @@
     previewEl.style.transform = 'none'; // celular ja vem na orientacao certa
     previewEl.style.display = 'block';
     previewEl.muted = true;
-    const tryPlay = () => previewEl.play().catch(() => {});
-    previewEl.onloadedmetadata = tryPlay;
-    remoteStream.getVideoTracks().forEach(t => { t.onunmute = tryPlay; });
+    previewEl.setAttribute('autoplay', '');
+    previewEl.setAttribute('playsinline', '');
+    const tryPlay = () => previewEl.play().then(
+      () => console.log('[KinePrompt] play OK'),
+      (e) => console.log('[KinePrompt] play FALHOU:', e && e.name)
+    );
+    previewEl.onloadedmetadata = () => {
+      console.log('[KinePrompt] loadedmetadata', previewEl.videoWidth + 'x' + previewEl.videoHeight);
+      tryPlay();
+    };
+    const vt = remoteStream.getVideoTracks()[0];
+    if (vt) {
+      console.log('[KinePrompt] video track: muted=' + vt.muted + ' enabled=' + vt.enabled + ' state=' + vt.readyState);
+      vt.onunmute = () => { console.log('[KinePrompt] track UNMUTE'); tryPlay(); };
+    }
     tryPlay();
+    setTimeout(() => {
+      console.log('[KinePrompt] +1.5s -> paused=' + previewEl.paused + ' size=' + previewEl.videoWidth + 'x' + previewEl.videoHeight);
+    }, 1500);
     if (wasListening) startSegment();
   }
 
