@@ -700,12 +700,107 @@
       };
     }
 
+    // ---- gravacao LOCAL no celular (qualidade cheia, sem perda de Wi-Fi) ----
+    const phoneRecordings = {};   // idx -> Blob
+    let rec = null, chunks = [];
+    const recMime = (typeof pickVideoMime === 'function') ? pickVideoMime() : '';
+    let dc = null;
+
+    function pStart() {
+      if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch (e) {} }
+      chunks = [];
+      try {
+        rec = recMime ? new MediaRecorder(stream, { mimeType: recMime }) : new MediaRecorder(stream);
+      } catch (e) { statusEl.textContent = 'Este navegador não grava vídeo (tente Chrome no Android).'; return; }
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.start();
+      statusEl.textContent = '🔴 Gravando...';
+    }
+    function pStop(keep, idx) {
+      if (!rec || rec.state === 'inactive') { rec = null; return; }
+      const localChunks = chunks; const r = rec; rec = null;
+      r.onstop = () => {
+        if (keep) {
+          phoneRecordings[idx] = new Blob(localChunks, { type: r.mimeType || 'video/webm' });
+          if (dc && dc.open) dc.send({ ev: 'saved', idx: idx });
+          statusEl.textContent = '💾 Frase ' + (idx + 1) + ' salva no celular';
+        }
+      };
+      try { r.stop(); } catch (e) {}
+    }
+    function handleCmd(msg) {
+      if (!msg || !msg.cmd) return;
+      if (msg.cmd === 'start') pStart();
+      else if (msg.cmd === 'keep') pStop(true, msg.idx);
+      else if (msg.cmd === 'discard') pStop(false);
+      else if (msg.cmd === 'finish') showDownloads();
+    }
+
+    function showDownloads() {
+      if (document.getElementById('phone-downloads')) return;
+      statusEl.textContent = '✅ Gravação concluída — baixe abaixo';
+      const wrap = document.createElement('div');
+      wrap.id = 'phone-downloads';
+      wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;width:92vw;max-width:520px;max-height:46vh;overflow:auto;margin-top:8px';
+      const idxs = Object.keys(phoneRecordings).map(Number).sort((a, b) => a - b);
+      const mkBtn = (label, fn) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.style.cssText = 'background:#1f1f24;color:#fff;border:1px solid #333;border-radius:8px;padding:12px;font-size:15px';
+        b.onclick = fn; return b;
+      };
+      idxs.forEach(i => wrap.appendChild(mkBtn('⬇ Baixar frase ' + (i + 1),
+        () => downloadBlob(phoneRecordings[i], 'frase-' + (i + 1) + '.webm'))));
+      if (idxs.length > 1) {
+        const all = mkBtn('⬇ Baixar tudo (1 vídeo)', () => phoneMerge(idxs.map(i => phoneRecordings[i])));
+        all.style.background = '#2ecc71'; all.style.borderColor = '#2ecc71'; all.style.color = '#06240f';
+        wrap.appendChild(all);
+      }
+      sender.appendChild(wrap);
+    }
+
+    // junta os trechos num video so, no proprio celular (canvas + audio)
+    async function phoneMerge(segs) {
+      if (!segs.length) return;
+      statusEl.textContent = 'Gerando vídeo único (aguarde)...';
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const v = document.createElement('video'); v.playsInline = true;
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const dest = ac.createMediaStreamDestination();
+      ac.createMediaElementSource(v).connect(dest);
+      let drawing = false;
+      const draw = () => { if (!drawing) return; if (v.readyState >= 2) ctx.drawImage(v, 0, 0, canvas.width, canvas.height); requestAnimationFrame(draw); };
+      let i = 0, r = null; const outChunks = [];
+      const playNext = () => {
+        if (i >= segs.length) { drawing = false; if (r && r.state !== 'inactive') r.stop(); return; }
+        v.src = URL.createObjectURL(segs[i++]);
+        v.onended = () => { URL.revokeObjectURL(v.src); playNext(); };
+        v.play().catch(() => {});
+      };
+      v.src = URL.createObjectURL(segs[0]);
+      v.addEventListener('loadedmetadata', () => {
+        canvas.width = v.videoWidth; canvas.height = v.videoHeight;
+        const mixed = new MediaStream([...canvas.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
+        r = recMime ? new MediaRecorder(mixed, { mimeType: recMime }) : new MediaRecorder(mixed);
+        r.ondataavailable = (e) => { if (e.data && e.data.size) outChunks.push(e.data); };
+        r.onstop = () => { downloadBlob(new Blob(outChunks, { type: r.mimeType || 'video/webm' }), 'kineprompt-completo.webm'); ac.close(); statusEl.textContent = '✅ Vídeo único baixado'; };
+        drawing = true; draw(); ac.resume(); r.start();
+        v.onended = () => { URL.revokeObjectURL(v.src); i = 1; playNext(); };
+        v.play().catch(() => {});
+      }, { once: true });
+    }
+
     function connect() {
       peer = makePeer();
       peer.on('open', () => {
         statusEl.textContent = 'Chamando o PC...';
         currentCall = peer.call(hostId, stream);
         monitorCall(currentCall);
+        // canal de comandos
+        dc = peer.connect(hostId, { reliable: true });
+        dc.on('data', handleCmd);
+        dc.on('open', () => { statusEl.textContent = '✅ Conectado — o PC controla a gravação'; });
       });
       peer.on('error', (err) => {
         statusEl.textContent = 'Erro: ' + err.type + ' — ' + (err.message || '') + '. Recarregue o QR.';
@@ -716,7 +811,6 @@
       facing = (facing === 'environment') ? 'user' : 'environment';
       try {
         await getStream();
-        // reenvia o novo stream na mesma chamada
         if (currentCall && peer) currentCall = peer.call(hostId, stream);
       } catch (e) { statusEl.textContent = 'Falha ao trocar câmera'; }
     });
@@ -979,6 +1073,7 @@
       scrollToActive();
     } else {
       statusText.textContent = "Roteiro concluído!";
+      if (phoneRecMode) { sendPhone({ cmd: 'finish' }); statusText.textContent = "Roteiro concluído! Baixe os vídeos no celular."; }
       stopRecognition();
     }
   }
@@ -1261,6 +1356,12 @@
   // celular e usa esse stream como fonte de gravacao
   // ---------------------------------------------------------------
   let phonePeer = null;
+  let phoneData = null;      // DataConnection de comandos pro celular
+  let phoneRecMode = false;  // true = celular grava local (PC so controla)
+
+  function sendPhone(msg) {
+    if (phoneData && phoneData.open) { try { phoneData.send(msg); } catch (e) {} }
+  }
 
   function openPhoneCamera() {
     if (typeof Peer === 'undefined') {
@@ -1311,6 +1412,20 @@
         phoneStatusEl.textContent = 'Recebendo vídeo...';
         usePhoneStream(remoteStream);
       });
+    });
+
+    // canal de dados: o celular grava local e o PC so manda comandos
+    phonePeer.on('connection', (conn) => {
+      phoneData = conn;
+      conn.on('open', () => {
+        phoneRecMode = true;
+        console.log('[KinePrompt] canal de comandos aberto (celular grava local)');
+        statusText.textContent = "Celular pronto (grava no aparelho)";
+      });
+      conn.on('data', (msg) => {
+        if (msg && msg.ev === 'saved') console.log('[KinePrompt] celular salvou frase', msg.idx);
+      });
+      conn.on('close', () => { phoneRecMode = false; phoneData = null; });
     });
 
     phonePeer.on('error', (err) => {
@@ -1380,6 +1495,8 @@
 
   // comeca a gravar (video) a frase atual do zero
   function startSegment() {
+    // modo celular: o aparelho grava local (qualidade cheia); PC so comanda
+    if (phoneRecMode) { sendPhone({ cmd: 'start', idx: currentIndex }); return; }
     if (!recordStream) return;
     const chunks = [];
     const mime = pickVideoMime();
@@ -1394,6 +1511,7 @@
   // encerra a gravacao do segmento atual; keep=true vincula o video a frase
   // (index), keep=false descarta. o blob so fica pronto no onstop (async).
   function finalizeSegment(index, keep) {
+    if (phoneRecMode) { sendPhone({ cmd: keep ? 'keep' : 'discard', idx: index }); return; }
     const rec = mediaRecorder;
     mediaRecorder = null;
     if (!rec || rec.state === 'inactive') return;
