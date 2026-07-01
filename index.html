@@ -404,6 +404,44 @@
   }
   #ready-prompt b { color: #fff; }
 
+  /* modal do QR (parear celular) */
+  #phone-modal {
+    position: fixed; inset: 0; z-index: 1200;
+    background: rgba(0,0,0,0.8);
+    display: none; align-items: center; justify-content: center;
+  }
+  #phone-modal.visible { display: flex; }
+  #phone-box {
+    background: #16161b; border: 1px solid #2a2a30; border-radius: 12px;
+    padding: 22px 24px; text-align: center; max-width: 92vw; width: 360px;
+  }
+  #phone-modal-title { color: #fff; font-size: 16px; margin-bottom: 14px; }
+  #phone-qr { width: 220px; height: 220px; background: #fff; border-radius: 8px; }
+  #phone-hint { color: #aaa; font-size: 13px; margin: 12px 0 6px; }
+  #phone-url { color: #7fb8ff; font-size: 12px; word-break: break-all; margin-bottom: 10px; }
+  #phone-status { color: #2ecc71; font-size: 13px; margin-bottom: 14px; }
+  #phone-close {
+    background: #1f1f24; color: #fff; border: 1px solid #333; border-radius: 6px;
+    padding: 8px 18px; cursor: pointer;
+  }
+
+  /* tela do CELULAR (quando abre o link ?cam=...) */
+  #phone-sender {
+    position: fixed; inset: 0; z-index: 2000;
+    background: #000; display: none;
+    flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  }
+  #phone-sender.visible { display: flex; }
+  #phone-preview {
+    width: 92vw; max-width: 520px; aspect-ratio: 16/9;
+    object-fit: cover; border-radius: 10px; background: #111;
+  }
+  #phone-sender-status { color: #ddd; font-size: 15px; text-align: center; padding: 0 16px; }
+  #phone-flip {
+    background: #1f1f24; color: #fff; border: 1px solid #333; border-radius: 8px;
+    padding: 12px 20px; font-size: 16px; cursor: pointer;
+  }
+
   /* variante de erro: vermelho */
   #ready-prompt.error {
     background: rgba(255, 59, 59, 0.15);
@@ -500,6 +538,9 @@
     z-index: 30;
   }
 </style>
+<!-- WebRTC (celular como camera): PeerJS faz a sinalizacao; qrcode gera o QR -->
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 </head>
 <body>
 
@@ -516,9 +557,29 @@
     <button id="btn-restart" title="Reiniciar frase atual (R)">↺</button>
     <button id="btn-next" title="Pular frase (→)">→</button>
     <button id="btn-toggle">Iniciar leitura</button>
+    <button id="btn-phone" title="Usar a câmera do celular (QR)">📱 Celular</button>
     <button id="btn-play" title="Ver gravação" hidden>🎬 Ver gravação</button>
     <button id="btn-clips" title="Trechos gravados" hidden>🎞 Trechos</button>
   </div>
+</div>
+
+<!-- modal do QR pra parear o celular como camera -->
+<div id="phone-modal">
+  <div id="phone-box">
+    <div id="phone-modal-title">📱 Usar o celular como câmera</div>
+    <img id="phone-qr" alt="QR code">
+    <div id="phone-hint">Escaneie o QR com o celular (mesma Wi-Fi) e permita a câmera.</div>
+    <div id="phone-url"></div>
+    <div id="phone-status">Gerando link...</div>
+    <button id="phone-close">Fechar</button>
+  </div>
+</div>
+
+<!-- tela exibida NO CELULAR quando ele abre o link ?cam=... -->
+<div id="phone-sender">
+  <video id="phone-preview" muted playsinline autoplay></video>
+  <div id="phone-sender-status">Conectando ao PC...</div>
+  <button id="phone-flip">🔄 Virar câmera</button>
 </div>
 
 <!-- palco: camera em cima, texto embaixo, na mesma coluna (sem sobrepor) -->
@@ -578,6 +639,69 @@
 
 <script>
 (function () {
+  // ===============================================================
+  // MODO CELULAR: se a URL tem ?cam=<id>, este device e a CAMERA.
+  // filma e envia o video pro PC (host) via WebRTC (PeerJS).
+  // ===============================================================
+  const camHostId = new URLSearchParams(location.search).get('cam');
+  if (camHostId) {
+    runPhoneCameraMode(camHostId);
+    return; // nao inicializa o teleprompter neste device
+  }
+
+  async function runPhoneCameraMode(hostId) {
+    const sender = document.getElementById('phone-sender');
+    const preview = document.getElementById('phone-preview');
+    const statusEl = document.getElementById('phone-sender-status');
+    const flipBtn = document.getElementById('phone-flip');
+    sender.classList.add('visible');
+
+    let facing = 'environment'; // comeca na camera traseira (lente melhor)
+    let stream = null;
+    let peer = null;
+    let currentCall = null;
+
+    async function getStream() {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true
+      });
+      preview.srcObject = stream;
+      preview.style.transform = (facing === 'user') ? 'scaleX(-1)' : 'none';
+    }
+
+    function connect() {
+      peer = new Peer();
+      peer.on('open', () => {
+        statusEl.textContent = 'Chamando o PC...';
+        currentCall = peer.call(hostId, stream);
+        if (currentCall) {
+          statusEl.textContent = '✅ Conectado — enviando vídeo para o PC';
+        }
+      });
+      peer.on('error', (err) => {
+        statusEl.textContent = 'Erro de conexão: ' + err.type + '. Recarregue o QR.';
+      });
+    }
+
+    flipBtn.addEventListener('click', async () => {
+      facing = (facing === 'environment') ? 'user' : 'environment';
+      try {
+        await getStream();
+        // reenvia o novo stream na mesma chamada
+        if (currentCall && peer) currentCall = peer.call(hostId, stream);
+      } catch (e) { statusEl.textContent = 'Falha ao trocar câmera'; }
+    });
+
+    try {
+      await getStream();
+      connect();
+    } catch (e) {
+      statusEl.textContent = 'Permita a câmera e o microfone e recarregue.';
+    }
+  }
+
   // ---------------------------------------------------------------
   // 1. Roteiro (array JSON de frases curtas)
   // ---------------------------------------------------------------
@@ -668,6 +792,12 @@
   const readyPrompt = document.getElementById('ready-prompt');
   const btnClips = document.getElementById('btn-clips');
   const camSelect = document.getElementById('cam-select');
+  const btnPhone = document.getElementById('btn-phone');
+  const phoneModal = document.getElementById('phone-modal');
+  const phoneQr = document.getElementById('phone-qr');
+  const phoneUrlEl = document.getElementById('phone-url');
+  const phoneStatusEl = document.getElementById('phone-status');
+  const phoneCloseBtn = document.getElementById('phone-close');
   const clipsPanel = document.getElementById('clips-panel');
   const clipsTrack = document.getElementById('clips-track');
   const btnDownloadAll = document.getElementById('btn-download-all');
@@ -1059,6 +1189,7 @@
       recordStream = await navigator.mediaDevices.getUserMedia({ video: video, audio: true });
       // self-view ao vivo no canto da tela
       previewEl.srcObject = recordStream;
+      previewEl.style.transform = ''; // webcam volta a espelhar (regra do CSS)
       previewEl.style.display = 'block';
       previewEl.play().catch(() => {});
       populateCameras(); // preenche a lista (labels so aparecem apos permissao)
@@ -1096,6 +1227,67 @@
     await initRecording();
     if (recordStream) previewEl.style.display = 'block';
     if (wasListening && recordStream) startSegment(); // retoma gravando com a nova camera
+  }
+
+  // ---------------------------------------------------------------
+  // celular como camera (host WebRTC): mostra QR, recebe o video do
+  // celular e usa esse stream como fonte de gravacao
+  // ---------------------------------------------------------------
+  let phonePeer = null;
+
+  function openPhoneCamera() {
+    if (typeof Peer === 'undefined') {
+      alert('Recurso indisponível (sem internet para carregar o WebRTC).');
+      return;
+    }
+    phoneModal.classList.add('visible');
+    phoneStatusEl.textContent = 'Gerando link...';
+    phoneQr.removeAttribute('src');
+    phoneUrlEl.textContent = '';
+
+    if (phonePeer) { try { phonePeer.destroy(); } catch (e) {} }
+    phonePeer = new Peer();
+
+    phonePeer.on('open', (id) => {
+      const url = location.origin + location.pathname + '?cam=' + id;
+      phoneUrlEl.textContent = url;
+      // gera o QR (nivel de correcao M, modulo auto)
+      const qr = qrcode(0, 'M');
+      qr.addData(url);
+      qr.make();
+      phoneQr.src = qr.createDataURL(6, 8);
+      phoneStatusEl.textContent = 'Aguardando o celular conectar...';
+    });
+
+    phonePeer.on('call', (call) => {
+      call.answer(); // nao enviamos video de volta
+      call.on('stream', (remoteStream) => {
+        usePhoneStream(remoteStream);
+        phoneStatusEl.textContent = '✅ Celular conectado!';
+        setTimeout(closePhoneModal, 1200);
+      });
+    });
+
+    phonePeer.on('error', (err) => {
+      phoneStatusEl.textContent = 'Erro: ' + err.type;
+    });
+  }
+
+  function closePhoneModal() {
+    phoneModal.classList.remove('visible');
+  }
+
+  // usa o stream recebido do celular como fonte de camera/gravacao
+  function usePhoneStream(remoteStream) {
+    const wasListening = isListening;
+    if (mediaRecorder) finalizeSegment(currentIndex, false);
+    if (recordStream) recordStream.getTracks().forEach(t => t.stop());
+    recordStream = remoteStream;
+    previewEl.srcObject = remoteStream;
+    previewEl.style.transform = 'none'; // celular ja vem na orientacao certa
+    previewEl.style.display = 'block';
+    previewEl.play().catch(() => {});
+    if (wasListening) startSegment();
   }
 
   function stopRecordStream() {
@@ -1728,6 +1920,8 @@
   btnClipsClose.addEventListener('click', closeClips);
   btnDownloadAll.addEventListener('click', downloadAllMerged);
   camSelect.addEventListener('change', () => switchCamera(camSelect.value));
+  btnPhone.addEventListener('click', openPhoneCamera);
+  phoneCloseBtn.addEventListener('click', closePhoneModal);
   // atualiza a lista quando plugar/despligar uma camera (ex: conectar o celular)
   if (navigator.mediaDevices) {
     navigator.mediaDevices.addEventListener('devicechange', populateCameras);
