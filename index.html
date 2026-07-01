@@ -649,6 +649,21 @@
     return; // nao inicializa o teleprompter neste device
   }
 
+  // cria um peer com STUN + TURN publico (TURN e essencial: sem ele o video
+  // fica preto quando os dois nao estao na mesma rede / NAT simetrico)
+  function makePeer() {
+    return new Peer(undefined, {
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+        ]
+      }
+    });
+  }
+
   async function runPhoneCameraMode(hostId) {
     const sender = document.getElementById('phone-sender');
     const preview = document.getElementById('phone-preview');
@@ -672,7 +687,7 @@
     }
 
     function connect() {
-      peer = new Peer();
+      peer = makePeer();
       peer.on('open', () => {
         statusEl.textContent = 'Chamando o PC...';
         currentCall = peer.call(hostId, stream);
@@ -1246,7 +1261,7 @@
     phoneUrlEl.textContent = '';
 
     if (phonePeer) { try { phonePeer.destroy(); } catch (e) {} }
-    phonePeer = new Peer();
+    phonePeer = makePeer();
 
     phonePeer.on('open', (id) => {
       const url = location.origin + location.pathname + '?cam=' + id;
@@ -1286,7 +1301,12 @@
     previewEl.srcObject = remoteStream;
     previewEl.style.transform = 'none'; // celular ja vem na orientacao certa
     previewEl.style.display = 'block';
-    previewEl.play().catch(() => {});
+    // forca o play quando os frames chegarem (evita tela preta)
+    previewEl.muted = true;
+    const tryPlay = () => previewEl.play().catch(() => {});
+    previewEl.onloadedmetadata = tryPlay;
+    remoteStream.getVideoTracks().forEach(t => { t.onunmute = tryPlay; });
+    tryPlay();
     if (wasListening) startSegment();
   }
 
