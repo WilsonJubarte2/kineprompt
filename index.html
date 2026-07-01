@@ -686,17 +686,27 @@
       preview.style.transform = (facing === 'user') ? 'scaleX(-1)' : 'none';
     }
 
+    function monitorCall(call) {
+      const pc = call && call.peerConnection;
+      if (!pc) return;
+      pc.oniceconnectionstatechange = () => {
+        const s = pc.iceConnectionState;
+        if (s === 'connected' || s === 'completed') statusEl.textContent = '✅ Enviando vídeo (' + s + ')';
+        else if (s === 'failed') statusEl.textContent = '❌ Conexão falhou (NAT/isolamento de Wi-Fi ou TURN indisponível)';
+        else if (s === 'disconnected') statusEl.textContent = '⚠️ Conexão caiu';
+        else statusEl.textContent = 'Conexão: ' + s + '...';
+      };
+    }
+
     function connect() {
       peer = makePeer();
       peer.on('open', () => {
         statusEl.textContent = 'Chamando o PC...';
         currentCall = peer.call(hostId, stream);
-        if (currentCall) {
-          statusEl.textContent = '✅ Conectado — enviando vídeo para o PC';
-        }
+        monitorCall(currentCall);
       });
       peer.on('error', (err) => {
-        statusEl.textContent = 'Erro de conexão: ' + err.type + '. Recarregue o QR.';
+        statusEl.textContent = 'Erro: ' + err.type + ' — ' + (err.message || '') + '. Recarregue o QR.';
       });
     }
 
@@ -1275,16 +1285,34 @@
     });
 
     phonePeer.on('call', (call) => {
+      phoneStatusEl.textContent = 'Celular chamou — negociando mídia...';
       call.answer(); // nao enviamos video de volta
+
+      const pc = call.peerConnection;
+      if (pc) {
+        pc.oniceconnectionstatechange = () => {
+          const s = pc.iceConnectionState;
+          console.log('[KinePrompt] ICE (PC):', s);
+          if (s === 'connected' || s === 'completed') {
+            phoneStatusEl.textContent = '✅ Celular conectado!';
+            setTimeout(closePhoneModal, 1200);
+          } else if (s === 'failed') {
+            phoneStatusEl.textContent = '❌ Falha de mídia (ICE failed). Provável isolamento de Wi-Fi ou TURN indisponível.';
+          } else {
+            phoneStatusEl.textContent = 'Conexão: ' + s + '...';
+          }
+        };
+      }
+
       call.on('stream', (remoteStream) => {
+        console.log('[KinePrompt] stream recebido:', remoteStream.getTracks().map(t => t.kind + ':' + t.readyState));
+        phoneStatusEl.textContent = 'Recebendo vídeo...';
         usePhoneStream(remoteStream);
-        phoneStatusEl.textContent = '✅ Celular conectado!';
-        setTimeout(closePhoneModal, 1200);
       });
     });
 
     phonePeer.on('error', (err) => {
-      phoneStatusEl.textContent = 'Erro: ' + err.type;
+      phoneStatusEl.textContent = 'Erro: ' + err.type + ' — ' + (err.message || '');
     });
   }
 
