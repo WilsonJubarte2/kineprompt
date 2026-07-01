@@ -405,6 +405,32 @@
   }
   #ready-prompt b { color: #fff; }
 
+  /* editor de roteiro */
+  #script-modal {
+    position: fixed; inset: 0; z-index: 1300;
+    background: rgba(0,0,0,0.8);
+    display: none; align-items: center; justify-content: center;
+  }
+  #script-modal.visible { display: flex; }
+  #script-box {
+    background: #16161b; border: 1px solid #2a2a30; border-radius: 12px;
+    padding: 20px; width: 640px; max-width: 94vw;
+  }
+  #script-modal-title { color: #fff; font-size: 16px; margin-bottom: 12px; }
+  #script-textarea {
+    width: 100%; height: 46vh; resize: vertical;
+    background: #0e0e12; color: #eee; border: 1px solid #333; border-radius: 8px;
+    padding: 12px; font-size: 15px; line-height: 1.5; font-family: inherit;
+  }
+  #script-hint { color: #888; font-size: 12px; margin: 8px 0 12px; }
+  #script-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  #script-actions button {
+    background: #1f1f24; color: #fff; border: 1px solid #333; border-radius: 6px;
+    padding: 9px 16px; font-size: 14px; cursor: pointer;
+  }
+  #script-save { background: #2ecc71; border-color: #2ecc71; color: #06240f; font-weight: 600; }
+  #script-actions button:hover { filter: brightness(1.1); }
+
   /* modal do QR (parear celular) */
   #phone-modal {
     position: fixed; inset: 0; z-index: 1200;
@@ -553,6 +579,7 @@
     <span id="progress-counter">frase 1 / 1</span>
   </div>
   <div id="controls">
+    <button id="btn-script" title="Editar roteiro">✏️ Roteiro</button>
     <select id="cam-select" title="Fonte de câmera (webcam ou celular)"></select>
     <button id="btn-prev" title="Frase anterior (←)">←</button>
     <button id="btn-restart" title="Reiniciar frase atual (R)">↺</button>
@@ -561,6 +588,20 @@
     <button id="btn-phone" title="Usar a câmera do celular (QR)">📱 Celular</button>
     <button id="btn-play" title="Ver gravação" hidden>🎬 Ver gravação</button>
     <button id="btn-clips" title="Trechos gravados" hidden>🎞 Trechos</button>
+  </div>
+</div>
+
+<!-- editor de roteiro -->
+<div id="script-modal">
+  <div id="script-box">
+    <div id="script-modal-title">✏️ Roteiro — cole ou digite o texto</div>
+    <textarea id="script-textarea" placeholder="Cole aqui o seu texto. Ele será dividido em frases (por linha e por . ! ?)."></textarea>
+    <div id="script-hint">Cada linha e cada frase (. ! ?) vira um passo do teleprompter.</div>
+    <div id="script-actions">
+      <button id="script-cancel">Cancelar</button>
+      <button id="script-restore">Restaurar exemplo</button>
+      <button id="script-save">Salvar roteiro</button>
+    </div>
   </div>
 </div>
 
@@ -826,18 +867,33 @@
   // ---------------------------------------------------------------
   // 1. Roteiro (array JSON de frases curtas)
   // ---------------------------------------------------------------
-  const roteiro = [
-    { id: 1,  text: "Olá a todos, sejam muito bem-vindos ao nosso canal." },
-    { id: 2,  text: "Hoje vamos falar sobre um assunto muito importante." },
-    { id: 3,  text: "A tecnologia está mudando a forma como trabalhamos." },
-    { id: 4,  text: "E isso impacta diretamente a nossa produtividade diária." },
-    { id: 5,  text: "Por isso, preparamos um conteúdo completo para vocês." },
-    { id: 6,  text: "Fiquem até o final para não perder nenhuma informação." },
-    { id: 7,  text: "Vamos começar falando sobre o primeiro ponto principal." },
-    { id: 8,  text: "É essencial entender o contexto antes de tomar decisões." },
-    { id: 9,  text: "Agora que entendemos isso, vamos para o próximo passo." },
-    { id: 10, text: "Muito obrigado por assistir, até o próximo vídeo!" }
-  ];
+  const DEFAULT_TEXT = [
+    "Olá a todos, sejam muito bem-vindos ao nosso canal.",
+    "Hoje vamos falar sobre um assunto muito importante.",
+    "A tecnologia está mudando a forma como trabalhamos.",
+    "E isso impacta diretamente a nossa produtividade diária.",
+    "Por isso, preparamos um conteúdo completo para vocês.",
+    "Fiquem até o final para não perder nenhuma informação.",
+    "Vamos começar falando sobre o primeiro ponto principal.",
+    "É essencial entender o contexto antes de tomar decisões.",
+    "Agora que entendemos isso, vamos para o próximo passo.",
+    "Muito obrigado por assistir, até o próximo vídeo!"
+  ].join(' ');
+
+  // quebra um texto livre em frases curtas (por linha e por pontuacao . ! ?)
+  function splitScript(text) {
+    const out = [];
+    text.split(/\n+/).forEach(line => {
+      line = line.trim();
+      if (!line) return;
+      const sentences = line.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [line];
+      sentences.forEach(s => { s = s.trim(); if (s) out.push(s); });
+    });
+    return out.map((t, i) => ({ id: i + 1, text: t }));
+  }
+
+  // carrega o roteiro salvo (localStorage) ou usa o texto padrao
+  let roteiro = splitScript(localStorage.getItem('kineprompt_script') || DEFAULT_TEXT);
 
   let currentIndex = 0;
   const SAFE_WORDS = ["repetir", "errei"];
@@ -912,6 +968,12 @@
   const ghostImg = document.getElementById('pose-ghost');
   const readyPrompt = document.getElementById('ready-prompt');
   const btnClips = document.getElementById('btn-clips');
+  const btnScript = document.getElementById('btn-script');
+  const scriptModal = document.getElementById('script-modal');
+  const scriptTextarea = document.getElementById('script-textarea');
+  const scriptSaveBtn = document.getElementById('script-save');
+  const scriptCancelBtn = document.getElementById('script-cancel');
+  const scriptRestoreBtn = document.getElementById('script-restore');
   const camSelect = document.getElementById('cam-select');
   const btnPhone = document.getElementById('btn-phone');
   const phoneModal = document.getElementById('phone-modal');
@@ -1059,6 +1121,45 @@
 
   function loadTargetWords() {
     targetWords = normalize(roteiro[currentIndex].text);
+  }
+
+  // ---------------------------------------------------------------
+  // editor de roteiro (texto customizavel, salvo no localStorage)
+  // ---------------------------------------------------------------
+  function currentScriptText() {
+    return roteiro.map(f => f.text).join('\n');
+  }
+
+  function openScriptEditor() {
+    scriptTextarea.value = currentScriptText();
+    scriptModal.classList.add('visible');
+    scriptTextarea.focus();
+  }
+
+  function closeScriptEditor() {
+    scriptModal.classList.remove('visible');
+  }
+
+  // aplica um texto novo: divide em frases, salva, e reinicia do zero
+  function applyScript(text) {
+    const novo = splitScript(text);
+    if (!novo.length) { alert('O roteiro está vazio.'); return; }
+    if (isListening) stopRecognition();
+    localStorage.setItem('kineprompt_script', text);
+    roteiro = novo;
+    // troca de roteiro invalida gravacoes/poses antigas
+    recordings.length = 0;
+    poses.length = 0;
+    updatePlayButton();
+    currentIndex = 0;
+    awaitingReady = false;
+    readyPrompt.style.display = 'none';
+    hideGhost();
+    renderScript();
+    loadTargetWords();
+    scrollToActive();
+    closeScriptEditor();
+    statusText.textContent = "Roteiro atualizado (" + roteiro.length + " frases)";
   }
 
   function goToNextSentence() {
@@ -2110,6 +2211,10 @@
   camSelect.addEventListener('change', () => switchCamera(camSelect.value));
   btnPhone.addEventListener('click', openPhoneCamera);
   phoneCloseBtn.addEventListener('click', closePhoneModal);
+  btnScript.addEventListener('click', openScriptEditor);
+  scriptCancelBtn.addEventListener('click', closeScriptEditor);
+  scriptSaveBtn.addEventListener('click', () => applyScript(scriptTextarea.value));
+  scriptRestoreBtn.addEventListener('click', () => { scriptTextarea.value = DEFAULT_TEXT; });
   // atualiza a lista quando plugar/despligar uma camera (ex: conectar o celular)
   if (navigator.mediaDevices) {
     navigator.mediaDevices.addEventListener('devicechange', populateCameras);
@@ -2117,6 +2222,9 @@
 
   // atalhos de teclado: espaco = iniciar/parar, setas = navegar, R = reiniciar
   document.addEventListener('keydown', (e) => {
+    // ignora atalhos enquanto digita no editor (ou qualquer campo de texto)
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'textarea' || tag === 'input' || e.target.isContentEditable) return;
     if (e.code === 'Space') {
       e.preventDefault();
       if (awaitingReady) confirmReady();
