@@ -486,73 +486,133 @@
     color: #ffd9d9;
   }
 
-  /* carrossel de trechos gravados */
+  /* ===== carrossel de trechos gravados (redesenhado) ===== */
   #clips-panel {
     position: fixed;
     left: 0; right: 0; bottom: 0;
-    background: rgba(10,10,13,0.98);
-    border-top: 1px solid #2a2a30;
+    background: rgba(14,14,18,0.96);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border-top: 1px solid var(--line-2);
     z-index: 60;
-    padding: 12px 16px 16px;
+    padding: 16px 22px 20px;
     display: none;
-    box-shadow: 0 -8px 30px rgba(0,0,0,0.6);
+    box-shadow: 0 -14px 44px rgba(0,0,0,0.55);
   }
-  #clips-panel.visible { display: block; }
+  #clips-panel.visible { display: block; animation: clipsUp .28s cubic-bezier(.2,.9,.3,1); }
+  @keyframes clipsUp { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
   #clips-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 10px;
+    gap: 12px;
+    margin-bottom: 14px;
   }
-  #clips-title { color: #ddd; font-size: 15px; }
+  #clips-title {
+    color: #fff; font-size: 16px; font-weight: 700;
+    display: inline-flex; align-items: center; gap: 10px;
+  }
+  #clips-count {
+    font-size: 12px; font-weight: 600; color: var(--brand-2);
+    background: rgba(124,92,255,0.16); border: 1px solid rgba(124,92,255,0.35);
+    padding: 3px 10px; border-radius: 999px;
+  }
+  .clips-actions { display: flex; gap: 10px; }
   .clips-actions button {
-    background: #1f1f24; color: #fff; border: 1px solid #333;
-    border-radius: 6px; padding: 7px 12px; font-size: 13px; cursor: pointer;
-    margin-left: 8px;
+    background: var(--panel-2); color: var(--fg); border: 1px solid var(--line-2);
+    border-radius: 8px; padding: 9px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: filter .15s, transform .05s, background .15s;
   }
-  #btn-download-all { background: #2ecc71; border-color: #2ecc71; color: #06240f; font-weight: 600; }
-  .clips-actions button:hover { filter: brightness(1.1); }
+  .clips-actions button:hover { background: #24242e; }
+  .clips-actions button:active { transform: translateY(1px); }
+  #btn-download-all {
+    background: linear-gradient(180deg, #33e07f, #16b862);
+    border-color: transparent; color: #04240f; font-weight: 700;
+    box-shadow: 0 3px 14px rgba(22,184,98,0.4);
+  }
+  #btn-download-all:hover { filter: brightness(1.06); background: linear-gradient(180deg, #33e07f, #16b862); }
 
   #clips-track {
     display: flex;
-    gap: 10px;
+    gap: 14px;
     overflow-x: auto;
-    padding-bottom: 6px;
+    padding: 4px 2px 10px;
+    scroll-snap-type: x proximity;
   }
+  #clips-track::-webkit-scrollbar { height: 8px; }
+  #clips-track::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 99px; }
+
   .clip-card {
     flex: 0 0 auto;
-    width: 180px;
-    background: #141418;
-    border: 1px solid #2a2a30;
-    border-radius: 8px;
-    padding: 8px;
+    width: 208px;
+    background: linear-gradient(180deg, #17171d, #121218);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 9px;
+    scroll-snap-align: start;
+    transition: border-color .18s, transform .12s, box-shadow .18s;
   }
+  .clip-card:hover { border-color: var(--brand); transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0,0,0,0.45); }
+  .clip-card.empty { opacity: 0.72; }
+
   .clip-thumb {
+    position: relative;
     width: 100%;
     aspect-ratio: 16 / 9;
-    border-radius: 5px;
-    background: #000 center/cover no-repeat;
-    transform: scaleX(-1);
+    border-radius: 9px;
+    background: #0a0a0d center/cover no-repeat;
     border: 1px solid #22222a;
+    overflow: hidden;
   }
-  .clip-num { font-size: 11px; color: #8a8a96; }
+  .clip-thumb .clip-thumb-img {
+    position: absolute; inset: 0;
+    background: inherit; background-size: cover; background-position: center;
+    transform: scaleX(-1);
+  }
+  .clip-thumb .clip-badge {
+    position: absolute; top: 7px; left: 7px; z-index: 2;
+    font-size: 11px; font-weight: 700; color: #fff;
+    background: rgba(0,0,0,0.6); border-radius: 6px; padding: 2px 8px;
+    backdrop-filter: blur(4px);
+  }
+  .clip-thumb .clip-play {
+    position: absolute; inset: 0; z-index: 2;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; color: #fff; opacity: 0;
+    background: rgba(0,0,0,0.35); transition: opacity .15s; cursor: pointer;
+  }
+  .clip-card:hover .clip-play { opacity: 1; }
+  .clip-thumb.empty-thumb {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--fg-inactive); font-size: 26px;
+  }
+
   .clip-text {
-    font-size: 12px; color: #cfcfd6; line-height: 1.3;
-    max-height: 3.9em; overflow: hidden;
+    font-size: 12.5px; color: #d4d4dc; line-height: 1.35;
+    max-height: 3.6em; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical;
   }
-  .clip-status { font-size: 11px; }
-  .clip-status.ok { color: #2ecc71; }
-  .clip-status.empty { color: #777; }
+  .clip-status {
+    font-size: 11.5px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 999px; align-self: flex-start;
+  }
+  .clip-status.ok { color: #33e07f; background: rgba(22,184,98,0.14); }
+  .clip-status.empty { color: var(--fg-inactive); background: rgba(255,255,255,0.04); }
+
   .clip-btns { display: flex; gap: 6px; margin-top: 2px; }
   .clip-btns button {
-    flex: 1; background: #1f1f24; color: #fff; border: 1px solid #333;
-    border-radius: 5px; padding: 6px 4px; font-size: 12px; cursor: pointer;
+    flex: 1; background: var(--panel-2); color: var(--fg); border: 1px solid var(--line-2);
+    border-radius: 8px; padding: 8px 4px; font-size: 14px; cursor: pointer;
+    transition: background .15s, border-color .15s;
   }
-  .clip-btns button:hover { background: #2a2a30; }
-  .clip-btns button:disabled { opacity: 0.35; cursor: default; }
+  .clip-btns button:hover:not(:disabled) { background: #2a2a34; border-color: var(--brand); }
+  .clip-btns button:disabled { opacity: 0.3; cursor: default; }
+  .clip-btns button.redo { color: var(--brand-2); }
 
   @keyframes pulse-ready {
     0%, 100% { opacity: 0.75; }
@@ -574,12 +634,235 @@
     display: none;
     z-index: 30;
   }
+
+  /* ============================================================= */
+  /* TELA INICIAL (setup): modo de operacao + atalhos customizaveis */
+  /* ============================================================= */
+  #setup-overlay {
+    position: fixed; inset: 0; z-index: 3000;
+    display: none; align-items: center; justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(900px 500px at 50% -10%, #1c1730 0%, transparent 60%),
+      rgba(6,6,9,0.96);
+    backdrop-filter: blur(6px);
+    overflow-y: auto;
+  }
+  #setup-overlay.visible { display: flex; }
+
+  .setup-card {
+    width: min(720px, 100%);
+    background: linear-gradient(180deg, #16161d, #101015);
+    border: 1px solid var(--line-2);
+    border-radius: 20px;
+    padding: 30px 34px 26px;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.6);
+    animation: clipsUp .3s cubic-bezier(.2,.9,.3,1);
+  }
+  .setup-logo { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: .3px; }
+  .setup-logo small { display:block; font-size: 14px; font-weight: 500; color: var(--fg-dim); margin-top: 4px; }
+  .setup-step-label {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--brand-2); margin: 26px 0 12px;
+  }
+  .setup-step-label .num {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--brand); color: #fff; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px;
+  }
+
+  /* escolha de modo: dois cartoes grandes selecionaveis */
+  .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .mode-grid { grid-template-columns: 1fr; } }
+  .mode-card {
+    text-align: left; cursor: pointer;
+    background: var(--panel-2); border: 2px solid var(--line);
+    border-radius: 14px; padding: 18px 16px;
+    transition: border-color .15s, background .15s, transform .08s;
+  }
+  .mode-card:hover { border-color: var(--line-2); background: #20202a; }
+  .mode-card:active { transform: translateY(1px); }
+  .mode-card.selected { border-color: var(--brand); background: rgba(124,92,255,0.12); box-shadow: 0 0 0 3px rgba(124,92,255,0.18); }
+  .mode-card .mc-emoji { font-size: 30px; }
+  .mode-card .mc-title { color: #fff; font-size: 16px; font-weight: 700; margin: 8px 0 4px; }
+  .mode-card .mc-desc { color: var(--fg-dim); font-size: 12.5px; line-height: 1.4; }
+  .mode-card .mc-check {
+    float: right; width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid var(--line-2); color: #fff; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mode-card.selected .mc-check { background: var(--brand); border-color: var(--brand); }
+
+  /* customizacao de atalhos */
+  .keys-list { display: flex; flex-direction: column; gap: 10px; }
+  .key-row {
+    display: flex; align-items: center; gap: 14px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  .key-row .kr-emoji { font-size: 22px; width: 30px; text-align: center; }
+  .key-row .kr-text { flex: 1 1 auto; }
+  .key-row .kr-title { color: #fff; font-size: 14.5px; font-weight: 600; }
+  .key-row .kr-sub { color: var(--fg-dim); font-size: 12px; }
+  .key-cap {
+    min-width: 104px; text-align: center;
+    background: #0d0d12; color: #fff; border: 2px solid var(--line-2);
+    border-radius: 10px; padding: 10px 14px;
+    font-size: 14px; font-weight: 700; font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .key-cap:hover { border-color: var(--brand); }
+  .key-cap.capturing { border-color: var(--brand); background: rgba(124,92,255,0.2); color: var(--brand-2); animation: capPulse 1s infinite; }
+  @keyframes capPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(124,92,255,0.4); } 50% { box-shadow: 0 0 0 6px rgba(124,92,255,0); } }
+
+  .setup-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 26px; flex-wrap: wrap; }
+  #setup-reset { background: none; border: none; color: var(--fg-dim); font-size: 13px; cursor: pointer; text-decoration: underline; }
+  #setup-reset:hover { color: var(--fg); }
+  #setup-start {
+    flex: 1 1 auto; min-width: 200px;
+    background: linear-gradient(180deg, var(--brand-2), var(--brand));
+    color: #fff; border: none; border-radius: 12px;
+    padding: 15px 24px; font-size: 16px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 6px 20px rgba(124,92,255,0.4);
+    transition: filter .15s, transform .06s;
+  }
+  #setup-start:hover { filter: brightness(1.08); }
+  #setup-start:active { transform: translateY(1px); }
+
+  /* ============================================================= */
+  /* HUD de atalhos: SEMPRE visivel, feedback grande e obvio        */
+  /* ============================================================= */
+  #shortcut-hud {
+    position: fixed; left: 14px; bottom: 46px; z-index: 55;
+    display: none; flex-direction: column; gap: 8px;
+    background: rgba(14,14,20,0.82);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--line-2); border-radius: 14px;
+    padding: 12px 13px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    max-width: 240px;
+  }
+  #shortcut-hud.visible { display: flex; }
+  #hud-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #hud-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-dim); }
+  #hud-settings { background: none; border: none; color: var(--fg-dim); font-size: 15px; cursor: pointer; padding: 0 2px; }
+  #hud-settings:hover { color: #fff; }
+  #hud-mode-tag { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; }
+  #hud-mode-tag.voice { color: var(--accent-listen); background: rgba(46,204,113,0.14); }
+  #hud-mode-tag.manual { color: var(--brand-2); background: rgba(124,92,255,0.16); }
+
+  .hud-chip {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 8px; border-radius: 10px;
+    transition: background .12s;
+  }
+  .hud-chip .hc-key {
+    min-width: 60px; text-align: center;
+    background: #0d0d12; color: #fff; border: 1px solid var(--line-2);
+    border-bottom-width: 3px;
+    border-radius: 8px; padding: 6px 8px;
+    font-size: 13px; font-weight: 700; font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    white-space: nowrap;
+  }
+  .hud-chip .hc-label { font-size: 13px; color: var(--fg); font-weight: 500; }
+  .hud-chip .hc-emoji { font-size: 15px; }
+  .hud-chip.flash { background: var(--brand); }
+  .hud-chip.flash .hc-key { background: #fff; color: var(--brand); border-color: #fff; }
+  .hud-chip.flash .hc-label { color: #fff; }
+
+  /* prompt de decisao (previa automatica): manter x regravar - BEM visivel */
+  #ready-prompt {
+    font-size: 16px;
+    padding: 14px 22px;
+  }
+  #ready-prompt .rp-keys { display: inline-flex; gap: 10px; margin-top: 8px; }
+  #ready-prompt kbd {
+    background: #0d0d12; color: #fff; border: 1px solid var(--line-2); border-bottom-width: 3px;
+    border-radius: 7px; padding: 3px 9px; font-size: 13px; font-weight: 700;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  /* banner "gravacao concluida" antes de abrir a revisao */
+  #done-overlay {
+    position: fixed; inset: 0; z-index: 900;
+    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: radial-gradient(700px 400px at 50% 40%, rgba(22,184,98,0.18), transparent 60%), rgba(4,10,6,0.9);
+  }
+  #done-overlay.visible { display: flex; animation: popIn .35s ease; }
+  #done-overlay .do-emoji { font-size: 120px; }
+  #done-overlay .do-title { font-size: 30px; font-weight: 800; color: #fff; }
+  #done-overlay .do-sub { font-size: 16px; color: #bfe9cf; }
 </style>
 <!-- WebRTC (celular como camera): PeerJS faz a sinalizacao; qrcode gera o QR -->
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 </head>
 <body>
+
+<!-- ============ TELA INICIAL: modo + atalhos customizaveis ============ -->
+<div id="setup-overlay">
+  <div class="setup-card">
+    <div class="setup-logo">🎬 KinePrompt <small>Configure antes de começar</small></div>
+
+    <div class="setup-step-label"><span class="num">1</span> Como você quer gravar?</div>
+    <div class="mode-grid" id="mode-grid">
+      <button class="mode-card" data-mode="voice">
+        <span class="mc-check">✓</span>
+        <div class="mc-emoji">🎙️</div>
+        <div class="mc-title">Com reconhecimento de fala</div>
+        <div class="mc-desc">Avança sozinho quando você lê a frase certa. Detecta erros e pede pra refazer.</div>
+      </button>
+      <button class="mode-card" data-mode="manual">
+        <span class="mc-check">✓</span>
+        <div class="mc-emoji">⌨️</div>
+        <div class="mc-title">Sem reconhecimento de fala</div>
+        <div class="mc-desc">Você controla tudo pelos atalhos. Grava no seu ritmo, sem microfone analisando.</div>
+      </button>
+    </div>
+
+    <div class="setup-step-label"><span class="num">2</span> Seus atalhos de teclado</div>
+    <div class="keys-list" id="keys-list">
+      <div class="key-row">
+        <span class="kr-emoji">▶</span>
+        <div class="kr-text"><div class="kr-title">Iniciar / Parar</div><div class="kr-sub">Começa ou para a gravação</div></div>
+        <button class="key-cap" data-action="start"></button>
+      </div>
+      <div class="key-row">
+        <span class="kr-emoji">➡</span>
+        <div class="kr-text"><div class="kr-title">Próxima frase</div><div class="kr-sub">Salva o trecho e vai pra próxima</div></div>
+        <button class="key-cap" data-action="next"></button>
+      </div>
+      <div class="key-row">
+        <span class="kr-emoji">↺</span>
+        <div class="kr-text"><div class="kr-title">Regravar</div><div class="kr-sub">Refaz a frase atual do zero</div></div>
+        <button class="key-cap" data-action="redo"></button>
+      </div>
+    </div>
+
+    <div class="setup-footer">
+      <button id="setup-reset">Restaurar atalhos padrão</button>
+      <button id="setup-start">Começar a gravar →</button>
+    </div>
+  </div>
+</div>
+
+<!-- HUD de atalhos: sempre visivel durante a gravacao -->
+<div id="shortcut-hud">
+  <div id="hud-head">
+    <span id="hud-title">Atalhos</span>
+    <span id="hud-mode-tag"></span>
+    <button id="hud-settings" title="Trocar modo / atalhos">⚙</button>
+  </div>
+  <div id="hud-chips"></div>
+</div>
+
+<!-- banner de gravacao concluida (antes de abrir a revisao) -->
+<div id="done-overlay">
+  <div class="do-emoji">🎉</div>
+  <div class="do-title">Gravação concluída!</div>
+  <div class="do-sub">Abrindo a revisão dos seus vídeos…</div>
+</div>
 
 <div id="topbar">
   <div class="tb-group">
@@ -656,12 +939,12 @@
 <!-- player de video pro playback da gravacao final -->
 <video id="player" playsinline controls></video>
 
-<!-- carrossel de trechos gravados -->
+<!-- painel de revisao: ver 1 a 1, remover, regravar, renderizar tudo -->
 <div id="clips-panel">
   <div id="clips-header">
-    <span id="clips-title">🎞 Trechos gravados</span>
+    <span id="clips-title">🎬 Revisão dos vídeos <span id="clips-count"></span></span>
     <div class="clips-actions">
-      <button id="btn-download-all">⬇ Baixar tudo (1 vídeo)</button>
+      <button id="btn-download-all">🎞 Renderizar vídeo único</button>
       <button id="btn-clips-close">✕ Fechar</button>
     </div>
   </div>
@@ -698,7 +981,7 @@
   // filma e envia o video pro PC (host) via WebRTC (PeerJS).
   // ===============================================================
   const camHostId = new URLSearchParams(location.search).get('cam');
-  console.log('[KinePrompt] build v6 — modo:', camHostId ? 'CELULAR (camera)' : 'PC (diretor)');
+  console.log('[KinePrompt] build v7 — modo:', camHostId ? 'CELULAR (camera)' : 'PC (diretor)');
   if (camHostId) {
     runPhoneCameraMode(camHostId);
     return; // nao inicializa o teleprompter neste device
@@ -907,6 +1190,41 @@
   // carrega o roteiro salvo (localStorage) ou usa o texto padrao
   let roteiro = splitScript(localStorage.getItem('kineprompt_script') || DEFAULT_TEXT);
 
+  // ---------------------------------------------------------------
+  // modo de operacao (com/sem reconhecimento de fala) + atalhos
+  // customizaveis, definidos na TELA INICIAL (setup)
+  // ---------------------------------------------------------------
+  const DEFAULT_KEYS = { start: 'Space', next: 'ArrowRight', redo: 'KeyR' };
+  let keybindings = loadKeybindings();
+  // default = voz; so vira manual se o usuario escolher (ou se o navegador
+  // nao suportar reconhecimento, decidido mais abaixo no init)
+  let speechMode = localStorage.getItem('kineprompt_mode') !== 'manual';
+  let previewing = false;   // tocando a previa automatica pos-frase
+  let setupDone = false;    // usuario ja passou pela tela inicial nesta sessao
+
+  function loadKeybindings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('kineprompt_keys') || '{}');
+      return Object.assign({}, DEFAULT_KEYS, saved);
+    } catch (e) { return Object.assign({}, DEFAULT_KEYS); }
+  }
+  function saveKeybindings() {
+    localStorage.setItem('kineprompt_keys', JSON.stringify(keybindings));
+  }
+  // nome amigavel de um KeyboardEvent.code (pra mostrar no HUD/setup)
+  function keyLabel(code) {
+    if (!code) return '—';
+    const map = {
+      Space: 'Espaço', ArrowRight: '→', ArrowLeft: '←', ArrowUp: '↑', ArrowDown: '↓',
+      Enter: 'Enter', Escape: 'Esc', Backspace: '⌫', Tab: 'Tab'
+    };
+    if (map[code]) return map[code];
+    if (code.startsWith('Key')) return code.slice(3);           // KeyR -> R
+    if (code.startsWith('Digit')) return code.slice(5);         // Digit1 -> 1
+    if (code.startsWith('Numpad')) return 'Num ' + code.slice(6);
+    return code;
+  }
+
   let currentIndex = 0;
   const SAFE_WORDS = ["repetir", "errei"];
   // so "pronto" confirma (NAO usar "proximo": varias frases terminam com
@@ -995,6 +1313,17 @@
   const clipsTrack = document.getElementById('clips-track');
   const btnDownloadAll = document.getElementById('btn-download-all');
   const btnClipsClose = document.getElementById('btn-clips-close');
+  // tela inicial (setup) + HUD de atalhos
+  const setupOverlay = document.getElementById('setup-overlay');
+  const modeGrid = document.getElementById('mode-grid');
+  const keysList = document.getElementById('keys-list');
+  const setupStartBtn = document.getElementById('setup-start');
+  const setupResetBtn = document.getElementById('setup-reset');
+  const shortcutHud = document.getElementById('shortcut-hud');
+  const hudChips = document.getElementById('hud-chips');
+  const hudModeTag = document.getElementById('hud-mode-tag');
+  const hudSettingsBtn = document.getElementById('hud-settings');
+  const doneOverlay = document.getElementById('done-overlay');
 
   function updateProgressCounter() {
     progressCounterEl.textContent = 'frase ' + (currentIndex + 1) + ' / ' + roteiro.length;
@@ -1192,10 +1521,30 @@
       loadTargetWords();
       scrollToActive();
     } else {
-      statusText.textContent = "Roteiro concluído!";
-      if (phoneRecMode) { sendPhone({ cmd: 'finish' }); statusText.textContent = "Roteiro concluído! Baixe os vídeos no celular."; }
-      stopRecognition();
+      finishAndReview();
     }
+  }
+
+  // fim do roteiro: para a sessao, mostra o banner de conclusao e abre a
+  // tela de revisao (ver 1 a 1, remover, regravar, renderizar tudo)
+  function finishAndReview() {
+    isListening = false; // impede o startSegment do callback de confirmReady
+    if (speechMode && recognition) { try { recognition.stop(); } catch (e) {} }
+    if (phoneRecMode) sendPhone({ cmd: 'finish' });
+    awaitingReady = false;
+    readyPrompt.style.display = 'none';
+    hideGhost();
+    stopPreview();
+    statusText.textContent = "Roteiro concluído!";
+    btnToggle.textContent = "▶ Iniciar";
+    btnToggle.classList.remove('rec');
+    micDot.classList.remove('listening');
+    updateHudVisibility();
+    doneOverlay.classList.add('visible');
+    setTimeout(() => {
+      doneOverlay.classList.remove('visible');
+      if (hasAnyRecording()) openClips();
+    }, 1700);
   }
 
   function resetCurrentSentence() {
@@ -1226,7 +1575,7 @@
     loadTargetWords();
     scrollToActive();
     interimEl.textContent = ' ';
-    if (isListening) { startSegment(); statusText.textContent = "Ouvindo..."; }
+    if (isListening) { startSegment(); statusText.textContent = speechMode ? "Ouvindo..." : "🔴 Gravando..."; }
   }
 
   function manualNext()    { if (currentIndex < roteiro.length - 1) goToSentence(currentIndex + 1); }
@@ -1362,8 +1711,9 @@
   // regrava o trecho atual (por voz "regravar")
   function redoCurrent() { redoSentence(currentIndex); }
 
-  // frase reconhecida por inteiro: NAO avanca sozinho. congela a pose,
-  // guarda o video do trecho e espera a pessoa dizer PRONTO ou apertar Espaco
+  // frase concluida (reconhecida na voz OU finalizada no manual): NAO avanca
+  // sozinho. congela a pose, guarda o video, TOCA A PREVIA AUTOMATICA e espera
+  // a pessoa decidir MANTER (proximo) ou REGRAVAR
   function onSentenceSuccess() {
     advancingSentence = true;      // trava matching/erro/silencio enquanto espera
     awaitingReady = true;
@@ -1372,11 +1722,54 @@
     readyVoiceAt = Date.now() + READY_VOICE_DELAY_MS; // + ignora cauda residual
     successBeep();
     capturePoseGhost();
-    finalizeSegment(currentIndex, true); // ACERTO: vincula o video desta frase
+    // quando o video ficar pronto, roda a previa automatica pra decidir
+    finalizeSegment(currentIndex, true, () => startAutoPreview());
+    showDecisionPrompt();
+  }
+
+  // mostra o aviso grande de decisao: MANTER (proximo) x REGRAVAR
+  function showDecisionPrompt() {
+    const last = currentIndex >= roteiro.length - 1;
     readyPrompt.classList.remove('error');
-    readyPrompt.innerHTML = '✅ Frase concluída — <b>PRONTO</b> p/ continuar · <b>REPLAY</b> p/ rever · <b>REGRAVAR</b> p/ refazer';
+    readyPrompt.innerHTML =
+      '✅ <b>Frase gravada!</b> Veja a prévia e decida:' +
+      '<div class="rp-keys">' +
+        '<span>' + (last ? '✔ Finalizar' : '✔ Manter e continuar') +
+          ' <kbd>' + keyLabel(keybindings.next) + '</kbd></span>' +
+        '<span>↺ Regravar <kbd>' + keyLabel(keybindings.redo) + '</kbd></span>' +
+      '</div>';
     readyPrompt.style.display = 'block';
-    statusText.textContent = "Frase concluída - PRONTO / REPLAY / REGRAVAR";
+    statusText.textContent = last ? 'Última frase gravada — Finalizar ou Regravar'
+                                  : 'Frase gravada — Manter ou Regravar';
+  }
+
+  // roda a previa (replay) do trecho recem-gravado automaticamente
+  function startAutoPreview() {
+    const blob = recordings[currentIndex];
+    if (!blob || phoneRecMode) return; // nada pra prever (ex: celular grava local)
+    previewing = true;
+    playerEl.style.display = 'block';
+    previewEl.style.display = 'none';
+    playerEl.onended = () => {
+      if (playerEl.src) { try { URL.revokeObjectURL(playerEl.src); } catch (e) {} }
+      playerEl.style.display = 'none';
+      if (recordStream && isListening) previewEl.style.display = 'block';
+      previewing = false;
+      readyVoiceAt = Date.now() + READY_VOICE_DELAY_MS; // ignora audio da previa
+    };
+    playerEl.src = URL.createObjectURL(blob);
+    playerEl.play().catch(() => {});
+  }
+
+  // interrompe a previa automatica (ao decidir manter/regravar)
+  function stopPreview() {
+    if (!previewing) return;
+    try { playerEl.pause(); } catch (e) {}
+    if (playerEl.src) { try { URL.revokeObjectURL(playerEl.src); } catch (e) {} }
+    playerEl.onended = null;
+    playerEl.style.display = 'none';
+    if (recordStream && isListening) previewEl.style.display = 'block';
+    previewing = false;
   }
 
   // errou a frase: tambem NAO reinicia sozinho. sinaliza o erro, descarta o
@@ -1392,15 +1785,19 @@
     finalizeSegment(currentIndex, false); // descarta o video do trecho errado
     showAlignGhost();              // pose da frase anterior pra realinhar
     readyPrompt.classList.add('error');
-    readyPrompt.innerHTML = '⚠️ Errou — diga <b>PRONTO</b> ou aperte <b>Espaço</b> para refazer';
+    readyPrompt.innerHTML =
+      '⚠️ <b>Ops, saiu diferente!</b> Vamos refazer esta frase:' +
+      '<div class="rp-keys"><span>↺ Refazer <kbd>' + keyLabel(keybindings.next) +
+      '</kbd> ou <kbd>' + keyLabel(keybindings.redo) + '</kbd></span></div>';
     readyPrompt.style.display = 'block';
-    statusText.textContent = "Errou - diga PRONTO ou aperte Espaço para refazer";
+    statusText.textContent = "Errou — aperte para refazer";
   }
 
   // confirma (voz "pronto" ou Espaco): faz a contagem 3,2,1 com o ghost
   // visivel pra alinhar a pose, e so entao avanca (acerto) ou refaz (erro)
   function confirmReady() {
     if (!awaitingReady || activeCountdown) return;
+    stopPreview();               // corta a previa automatica, se estiver tocando
     const kind = awaitingKind;
     awaitingReady = false;
     awaitingKind = null;
@@ -1415,7 +1812,7 @@
       } else {
         goToNextSentence();          // avanca pra proxima
       }
-      if (isListening) { startSegment(); showAlignGhost(); statusText.textContent = "Ouvindo..."; }
+      if (isListening) { startSegment(); showAlignGhost(); statusText.textContent = speechMode ? "Ouvindo..." : "🔴 Gravando..."; }
     });
   }
 
@@ -1630,18 +2027,19 @@
 
   // encerra a gravacao do segmento atual; keep=true vincula o video a frase
   // (index), keep=false descarta. o blob so fica pronto no onstop (async).
-  function finalizeSegment(index, keep) {
-    if (phoneRecMode) { sendPhone({ cmd: keep ? 'keep' : 'discard', idx: index }); return; }
+  function finalizeSegment(index, keep, onSaved) {
+    if (phoneRecMode) { sendPhone({ cmd: keep ? 'keep' : 'discard', idx: index }); if (onSaved) onSaved(); return; }
     const rec = mediaRecorder;
     mediaRecorder = null;
-    if (!rec || rec.state === 'inactive') return;
+    if (!rec || rec.state === 'inactive') { if (onSaved) onSaved(); return; }
     rec.onstop = () => {
       if (keep && rec._chunks.length) {
         recordings[index] = new Blob(rec._chunks, { type: rec.mimeType || 'video/webm' });
         updatePlayButton();
       }
+      if (onSaved) onSaved(); // video pronto (blob disponivel)
     };
-    try { rec.stop(); } catch (e) { /* ja parado */ }
+    try { rec.stop(); } catch (e) { if (onSaved) onSaved(); }
   }
 
   function hasAnyRecording() {
@@ -1666,57 +2064,70 @@
     clipsPanel.classList.remove('visible');
   }
 
+  function mkClipBtn(label, title, disabled, fn) {
+    const b = document.createElement('button');
+    b.textContent = label; b.title = title; b.disabled = disabled; b.onclick = fn;
+    return b;
+  }
+
+  // remove a gravacao de um trecho (mantem a frase no roteiro)
+  function removeClip(idx) {
+    if (!recordings[idx]) return;
+    recordings[idx] = undefined;
+    updatePlayButton();
+    renderClips();
+  }
+
   function renderClips() {
     clipsTrack.innerHTML = '';
+    const total = roteiro.length;
+    const got = recordings.filter(Boolean).length;
+    const countEl = document.getElementById('clips-count');
+    if (countEl) countEl.textContent = got + ' de ' + total + ' gravadas';
+
     roteiro.forEach((frase, idx) => {
       const has = !!recordings[idx];
       const card = document.createElement('div');
-      card.className = 'clip-card';
+      card.className = 'clip-card' + (has ? '' : ' empty');
 
       const thumb = document.createElement('div');
-      thumb.className = 'clip-thumb';
-      if (poses[idx]) thumb.style.backgroundImage = 'url(' + poses[idx] + ')';
+      if (has) {
+        thumb.className = 'clip-thumb';
+        const img = document.createElement('div');
+        img.className = 'clip-thumb-img';
+        if (poses[idx]) img.style.backgroundImage = 'url(' + poses[idx] + ')';
+        thumb.appendChild(img);
+        const badge = document.createElement('span');
+        badge.className = 'clip-badge'; badge.textContent = '#' + (idx + 1);
+        thumb.appendChild(badge);
+        const play = document.createElement('div');
+        play.className = 'clip-play'; play.textContent = '▶';
+        play.onclick = () => playSingleClip(idx);
+        thumb.appendChild(play);
+      } else {
+        thumb.className = 'clip-thumb empty-thumb'; thumb.textContent = '○';
+      }
       card.appendChild(thumb);
-
-      const num = document.createElement('div');
-      num.className = 'clip-num';
-      num.textContent = 'Frase ' + (idx + 1) + ' / ' + roteiro.length;
-      card.appendChild(num);
 
       const txt = document.createElement('div');
       txt.className = 'clip-text';
-      txt.textContent = frase.text;
+      txt.textContent = (idx + 1) + '. ' + frase.text;
       card.appendChild(txt);
 
       const st = document.createElement('div');
       st.className = 'clip-status ' + (has ? 'ok' : 'empty');
-      st.textContent = has ? '● gravado' : '○ sem gravação';
+      st.textContent = has ? '● Gravado' : '○ Sem gravação';
       card.appendChild(st);
 
       const btns = document.createElement('div');
       btns.className = 'clip-btns';
-
-      const bPlay = document.createElement('button');
-      bPlay.textContent = '▶';
-      bPlay.title = 'Ver trecho';
-      bPlay.disabled = !has;
-      bPlay.onclick = () => playSingleClip(idx);
-      btns.appendChild(bPlay);
-
-      const bRedo = document.createElement('button');
-      bRedo.textContent = '⟲';
-      bRedo.title = 'Refazer';
-      bRedo.onclick = () => redoSentence(idx);
+      btns.appendChild(mkClipBtn('▶', 'Ver este vídeo', !has, () => playSingleClip(idx)));
+      const bRedo = mkClipBtn('↺', 'Regravar esta frase', false, () => redoSentence(idx));
+      bRedo.classList.add('redo');
       btns.appendChild(bRedo);
-
-      const bDl = document.createElement('button');
-      bDl.textContent = '⬇';
-      bDl.title = 'Baixar trecho';
-      bDl.disabled = !has;
-      bDl.onclick = () => downloadBlob(recordings[idx], 'frase-' + (idx + 1) + '.webm');
-      btns.appendChild(bDl);
-
+      btns.appendChild(mkClipBtn('🗑', 'Remover esta gravação', !has, () => removeClip(idx)));
       card.appendChild(btns);
+
       clipsTrack.appendChild(card);
     });
   }
@@ -1740,6 +2151,7 @@
   async function redoSentence(idx) {
     closeClips();
     cancelCountdown();
+    stopPreview();
     getAudioCtx();
     playerEl.style.display = 'none';
     awaitingReady = false;
@@ -1756,8 +2168,9 @@
 
     if (!isListening) {
       isListening = true;
-      try { recognition.start(); } catch (e) { /* ja rodando */ }
+      if (speechMode && recognition) { try { recognition.start(); } catch (e) { /* ja rodando */ } }
     }
+    updateHudVisibility();
 
     advancingSentence = true; // trava matching durante a contagem
     runLeadCountdown(() => {
@@ -2093,7 +2506,7 @@
       // 2. aguardando confirmacao: escuta PRONTO / REPLAY / REGRAVAR, e so
       // depois do delay (pra ignorar a cauda da fala da frase anterior)
       if (awaitingReady) {
-        if (!replaying && Date.now() >= readyVoiceAt) {
+        if (!replaying && !previewing && Date.now() >= readyVoiceAt) {
           const heard = finalWords.concat(interimWords);
           if (containsAny(heard, REDO_WORDS)) { redoCurrent(); }
           else if (awaitingKind === 'advance' && recordings[currentIndex] &&
@@ -2142,8 +2555,9 @@
     };
   }
 
+  // inicia a SESSAO de gravacao. no modo voz, tambem liga o reconhecimento;
+  // no modo manual, so grava (a pessoa controla tudo pelos atalhos)
   async function startRecognition() {
-    if (!recognition) return;
     getAudioCtx(); // desbloqueia audio dentro do gesto de clique do usuario
     baseIndex = 0;
     latestResultsLen = 0;
@@ -2157,17 +2571,34 @@
     await initRecording(); // pede a camera/mic pra gravar (separado do reconhecimento)
     if (recordStream) previewEl.style.display = 'block'; // reexibe self-view apos playback
     startSegment();        // comeca a gravar a frase atual
-    try { recognition.start(); } catch (e) { /* pode já estar rodando */ }
+    if (speechMode && recognition) {
+      try { recognition.start(); } catch (e) { /* pode já estar rodando */ }
+    } else {
+      // modo manual: sem reconhecimento, so gravando
+      micDot.classList.remove('listening');
+      statusText.textContent = "🔴 Gravando — leia no seu ritmo";
+      btnToggle.textContent = "⏹ Parar";
+      btnToggle.classList.add('rec');
+    }
+    updateHudVisibility();
   }
 
   function stopRecognition() {
-    if (!recognition) return;
     isListening = false;
-    recognition.stop();
+    if (speechMode && recognition) recognition.stop();
     finalizeSegment(currentIndex, false); // trecho incompleto e descartado
     awaitingReady = false;
     readyPrompt.style.display = 'none';
+    stopPreview();
     hideGhost(); // esconde o ghost mas mantem a ultima pose guardada
+    // no modo voz, recognition.onend restaura a UI; no manual, faz aqui
+    if (!(speechMode && recognition)) {
+      statusText.textContent = "Pronto para gravar";
+      btnToggle.textContent = "▶ Iniciar";
+      btnToggle.classList.remove('rec');
+      showEditor();
+    }
+    updateHudVisibility();
     // mantem a camera/preview ligada pra continuar se vendo mesmo parado
   }
 
@@ -2218,17 +2649,10 @@
     onSentenceError(Math.min(currentMatchCount, targetWords.length - 1));
   }, 200);
 
-  btnToggle.addEventListener('click', () => {
-    if (isListening) {
-      stopRecognition();
-    } else {
-      beginWithCountdown();
-    }
-  });
-
+  btnToggle.addEventListener('click', () => { flashHud('start'); handleStart(); });
   btnPrev.addEventListener('click', manualPrev);
-  btnNext.addEventListener('click', manualNext);
-  btnRestart.addEventListener('click', manualRestart);
+  btnNext.addEventListener('click', () => { flashHud('next'); handleNext(); });
+  btnRestart.addEventListener('click', () => { flashHud('redo'); handleRedo(); });
   btnPlay.addEventListener('click', playRecordings);
   btnClips.addEventListener('click', openClips);
   btnClipsClose.addEventListener('click', closeClips);
@@ -2248,27 +2672,180 @@
     navigator.mediaDevices.addEventListener('devicechange', populateCameras);
   }
 
-  // atalhos de teclado: espaco = iniciar/parar, setas = navegar, R = reiniciar
+  // ---------------------------------------------------------------
+  // acoes dos atalhos (start / next / redo) - servem os 2 modos
+  // ---------------------------------------------------------------
+  function handleStart() {
+    if (awaitingReady) { confirmReady(); return; } // durante a decisao, tambem confirma
+    if (isListening) stopRecognition();
+    else beginWithCountdown();
+  }
+
+  function handleNext() {
+    if (awaitingReady) { confirmReady(); return; }        // manter e continuar
+    if (isListening && !speechMode) { onSentenceSuccess(); return; } // manual: finaliza o take
+    manualNext();                                          // voz/parado: pula frase
+  }
+
+  function handleRedo() {
+    if (awaitingReady || previewing) { redoCurrent(); return; } // regrava a frase decidida
+    if (isListening) { redoSentence(currentIndex); return; }    // regrava o take atual
+    manualRestart();                                            // parado: reinicia a frase
+  }
+
+  // ---------------------------------------------------------------
+  // HUD de atalhos (sempre visivel) + flash de feedback
+  // ---------------------------------------------------------------
+  function renderHud() {
+    const items = [
+      { action: 'start', emoji: '▶', label: 'Iniciar / Parar' },
+      { action: 'next',  emoji: '➡', label: speechMode ? 'Próxima / Pular' : 'Próxima / Salvar' },
+      { action: 'redo',  emoji: '↺', label: 'Regravar' }
+    ];
+    hudChips.innerHTML = '';
+    items.forEach(it => {
+      const chip = document.createElement('div');
+      chip.className = 'hud-chip';
+      chip.dataset.action = it.action;
+      chip.innerHTML =
+        '<span class="hc-key">' + keyLabel(keybindings[it.action]) + '</span>' +
+        '<span class="hc-emoji">' + it.emoji + '</span>' +
+        '<span class="hc-label">' + it.label + '</span>';
+      hudChips.appendChild(chip);
+    });
+    hudModeTag.textContent = speechMode ? '🎙️ Voz' : '⌨️ Manual';
+    hudModeTag.className = speechMode ? 'voice' : 'manual';
+  }
+
+  function flashHud(action) {
+    const chip = hudChips.querySelector('.hud-chip[data-action="' + action + '"]');
+    if (!chip) return;
+    chip.classList.remove('flash');
+    void chip.offsetWidth; // reinicia a animacao
+    chip.classList.add('flash');
+    setTimeout(() => chip.classList.remove('flash'), 350);
+  }
+
+  function updateHudVisibility() {
+    shortcutHud.classList.toggle('visible', setupDone && !setupOverlay.classList.contains('visible'));
+  }
+
+  function applyMode() {
+    if (speechMode) {
+      btnToggle.disabled = !recognition;
+      statusText.textContent = recognition ? "Pronto para gravar (voz)" : "Voz não suportada";
+    } else {
+      btnToggle.disabled = false;
+      statusText.textContent = "Pronto para gravar (manual)";
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // TELA INICIAL (setup): escolher modo + customizar atalhos
+  // ---------------------------------------------------------------
+  let pendingKeys = Object.assign({}, keybindings);
+  let pendingMode = speechMode ? 'voice' : 'manual';
+  let capturingBtn = null;
+
+  function openSetup() {
+    pendingKeys = Object.assign({}, keybindings);
+    pendingMode = SpeechRecognition ? (speechMode ? 'voice' : 'manual') : 'manual';
+    capturingBtn = null;
+    renderSetup();
+    setupOverlay.classList.add('visible');
+    updateHudVisibility();
+  }
+
+  function renderSetup() {
+    modeGrid.querySelectorAll('.mode-card').forEach(c => {
+      c.classList.toggle('selected', c.dataset.mode === pendingMode);
+      if (c.dataset.mode === 'voice' && !SpeechRecognition) {
+        c.style.opacity = '0.4';
+        c.style.pointerEvents = 'none';
+        const d = c.querySelector('.mc-desc');
+        if (d) d.textContent = 'Não suportado neste navegador (use Chrome).';
+      }
+    });
+    keysList.querySelectorAll('.key-cap').forEach(btn => {
+      if (btn !== capturingBtn) btn.textContent = keyLabel(pendingKeys[btn.dataset.action]);
+    });
+  }
+
+  modeGrid.addEventListener('click', (e) => {
+    const card = e.target.closest('.mode-card');
+    if (!card) return;
+    pendingMode = card.dataset.mode;
+    renderSetup();
+  });
+
+  keysList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.key-cap');
+    if (!btn) return;
+    if (capturingBtn) { capturingBtn.classList.remove('capturing'); }
+    capturingBtn = btn;
+    btn.classList.add('capturing');
+    btn.textContent = 'Pressione…';
+  });
+
+  // captura a proxima tecla pressionada pro atalho em edicao (fase 'capturing')
+  window.addEventListener('keydown', (e) => {
+    if (!capturingBtn || !setupOverlay.classList.contains('visible')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const action = capturingBtn.dataset.action;
+    if (e.code === 'Escape') {
+      capturingBtn.classList.remove('capturing');
+      capturingBtn = null;
+      renderSetup();
+      return;
+    }
+    const code = e.code;
+    // evita duplicata: se outra acao ja usa essa tecla, elas trocam
+    const prev = pendingKeys[action];
+    ['start', 'next', 'redo'].forEach(a => { if (a !== action && pendingKeys[a] === code) pendingKeys[a] = prev; });
+    pendingKeys[action] = code;
+    capturingBtn.classList.remove('capturing');
+    capturingBtn = null;
+    renderSetup();
+  }, true);
+
+  setupResetBtn.addEventListener('click', () => {
+    pendingKeys = Object.assign({}, DEFAULT_KEYS);
+    capturingBtn = null;
+    renderSetup();
+  });
+
+  setupStartBtn.addEventListener('click', () => {
+    keybindings = Object.assign({}, pendingKeys);
+    speechMode = (pendingMode === 'voice') && !!SpeechRecognition;
+    saveKeybindings();
+    localStorage.setItem('kineprompt_mode', speechMode ? 'voice' : 'manual');
+    setupDone = true;
+    setupOverlay.classList.remove('visible');
+    applyMode();
+    renderHud();
+    updateHudVisibility();
+  });
+
+  hudSettingsBtn.addEventListener('click', () => {
+    if (isListening) stopRecognition();
+    openSetup();
+  });
+
+  // ---------------------------------------------------------------
+  // atalhos de teclado (usam o mapa customizavel)
+  // ---------------------------------------------------------------
   document.addEventListener('keydown', (e) => {
-    // ignora atalhos enquanto digita no editor (ou qualquer campo de texto)
+    if (setupOverlay.classList.contains('visible')) return; // setup captura teclas
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'textarea' || tag === 'input' || e.target.isContentEditable) return;
-    if (e.code === 'Space') {
-      e.preventDefault();
-      if (awaitingReady) confirmReady();
-      else if (isListening) stopRecognition();
-      else beginWithCountdown();
-    } else if (e.code === 'ArrowRight') {
-      e.preventDefault();
-      manualNext();
-    } else if (e.code === 'ArrowLeft') {
-      e.preventDefault();
-      manualPrev();
-    } else if (e.key === 'r' || e.key === 'R') {
-      manualRestart();
-    } else if (e.key === 'Escape') {
-      cancelCurrentTake();
-    }
+
+    const code = e.code;
+    if (code === keybindings.start) { e.preventDefault(); flashHud('start'); handleStart(); }
+    else if (code === keybindings.next) { e.preventDefault(); flashHud('next'); handleNext(); }
+    else if (code === keybindings.redo) { e.preventDefault(); flashHud('redo'); handleRedo(); }
+    else if (code === 'ArrowLeft') { e.preventDefault(); manualPrev(); }      // extra: frase anterior
+    else if (code === 'Escape') { cancelCurrentTake(); }                       // extra: cancelar take
   });
 
   // ---------------------------------------------------------------
@@ -2278,7 +2855,9 @@
   renderScript();
   loadTargetWords();
   showEditor();    // comeca no modo de edicao inline
-  initRecording(); // ja liga a camera pra self-view antes de iniciar a leitura
+  renderHud();
+  openSetup();     // TELA INICIAL: escolher modo + atalhos antes de gravar
+  initRecording(); // ja liga a camera pra self-view por tras do setup
 })();
 </script>
 
