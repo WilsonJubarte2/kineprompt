@@ -1883,6 +1883,13 @@
     peekIndex = null;            // o estado real assume a exibicao de novo
     readyPrompt.style.display = 'none';
     readyPrompt.classList.remove('error');
+    // ultima frase aceita: sem contagem 3,2,1 - vai direto pro "gravacao
+    // concluida" e abre a revisao
+    if (kind === 'advance' && currentIndex >= roteiro.length - 1) {
+      advancingSentence = false;
+      finishAndReview();
+      return;
+    }
     if (kind === 'advance') showHoldGhost(); else showAlignGhost();
     // advancingSentence continua true: nao reage a fala durante a contagem
     runLeadCountdown(() => {
