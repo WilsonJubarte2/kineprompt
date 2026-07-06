@@ -166,18 +166,9 @@
     z-index: 2;
   }
 
-  /* barra inferior estilo "status bar" de editor */
-  #interim {
-    flex: 0 0 auto;
-    padding: 9px 18px 11px;
-    font-size: 12.5px;
-    color: var(--fg-dim);
-    background: linear-gradient(0deg, var(--panel) 0%, #101015 100%);
-    border-top: 1px solid var(--line);
-    z-index: 10;
-    min-height: 20px;
-    white-space: pre-wrap;
-  }
+  /* barra inferior removida a pedido: o texto ouvido continua indo pro
+     elemento (JS intacto), so nao ocupa mais espaco na tela */
+  #interim { display: none; }
 
   #interim .safeword { color: var(--accent); font-weight: bold; }
 
@@ -441,9 +432,19 @@
   }
   #ready-prompt b { color: #fff; }
 
-  /* modal do QR (parear celular) */
+  /* seletores de dispositivo (camera/microfone) na tela inicial */
+  .dev-select {
+    min-width: 160px; max-width: 230px;
+    background: #0d0d12; color: #fff; border: 2px solid var(--line-2);
+    border-radius: 10px; padding: 10px 10px;
+    font-size: 13px; cursor: pointer;
+    transition: border-color .15s;
+  }
+  .dev-select:hover { border-color: var(--brand); }
+
+  /* modal do QR (parear celular): acima da tela inicial (z 3000) */
   #phone-modal {
-    position: fixed; inset: 0; z-index: 1200;
+    position: fixed; inset: 0; z-index: 3200;
     background: rgba(0,0,0,0.8);
     display: none; align-items: center; justify-content: center;
   }
@@ -821,7 +822,26 @@
       </button>
     </div>
 
-    <div class="setup-step-label"><span class="num">2</span> Seus atalhos de teclado</div>
+    <div class="setup-step-label"><span class="num">2</span> Câmera e microfone</div>
+    <div class="keys-list">
+      <div class="key-row">
+        <span class="kr-emoji">🎥</span>
+        <div class="kr-text"><div class="kr-title">Câmera</div><div class="kr-sub">Fonte do vídeo (webcam ou celular)</div></div>
+        <select id="setup-cam" class="dev-select"></select>
+      </div>
+      <div class="key-row">
+        <span class="kr-emoji">🎙️</span>
+        <div class="kr-text"><div class="kr-title">Microfone</div><div class="kr-sub">Áudio da gravação do vídeo</div></div>
+        <select id="setup-mic" class="dev-select"></select>
+      </div>
+      <div class="key-row">
+        <span class="kr-emoji">📱</span>
+        <div class="kr-text"><div class="kr-title">Câmera do celular</div><div class="kr-sub" id="setup-phone-status">Escaneie um QR e filme pelo celular</div></div>
+        <button class="key-cap" id="setup-phone-btn">Conectar</button>
+      </div>
+    </div>
+
+    <div class="setup-step-label"><span class="num">3</span> Seus atalhos de teclado</div>
     <div class="keys-list" id="keys-list">
       <div class="key-row">
         <span class="kr-emoji">▶</span>
@@ -1017,7 +1037,7 @@
     async function getStream() {
       if (stream) stream.getTracks().forEach(t => t.stop());
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } },
         audio: true
       });
       preview.srcObject = stream;
@@ -1039,14 +1059,13 @@
     // ---- gravacao LOCAL no celular (qualidade cheia, sem perda de Wi-Fi) ----
     const phoneRecordings = {};   // idx -> Blob
     let rec = null, chunks = [];
-    const recMime = (typeof pickVideoMime === 'function') ? pickVideoMime() : '';
     let dc = null;
 
     function pStart() {
       if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch (e) {} }
       chunks = [];
       try {
-        rec = recMime ? new MediaRecorder(stream, { mimeType: recMime }) : new MediaRecorder(stream);
+        rec = makeRecorder(stream); // qualidade maxima (50 Mbps)
       } catch (e) { statusEl.textContent = 'Este navegador não grava vídeo (tente Chrome no Android).'; return; }
       rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       rec.start();
@@ -1086,7 +1105,7 @@
         b.onclick = fn; return b;
       };
       idxs.forEach(i => wrap.appendChild(mkBtn('⬇ Baixar frase ' + (i + 1),
-        () => downloadBlob(phoneRecordings[i], 'frase-' + (i + 1) + '.webm'))));
+        () => downloadBlob(phoneRecordings[i], 'frase-' + (i + 1) + '.' + videoExt()))));
       if (idxs.length > 1) {
         const all = mkBtn('⬇ Baixar tudo (1 vídeo)', () => phoneMerge(idxs.map(i => phoneRecordings[i])));
         all.style.background = '#2ecc71'; all.style.borderColor = '#2ecc71'; all.style.color = '#06240f';
@@ -1118,9 +1137,9 @@
       v.addEventListener('loadedmetadata', () => {
         canvas.width = v.videoWidth; canvas.height = v.videoHeight;
         const mixed = new MediaStream([...canvas.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
-        r = recMime ? new MediaRecorder(mixed, { mimeType: recMime }) : new MediaRecorder(mixed);
+        r = makeRecorder(mixed);
         r.ondataavailable = (e) => { if (e.data && e.data.size) outChunks.push(e.data); };
-        r.onstop = () => { downloadBlob(new Blob(outChunks, { type: r.mimeType || 'video/webm' }), 'kineprompt-completo.webm'); ac.close(); statusEl.textContent = '✅ Vídeo único baixado'; };
+        r.onstop = () => { downloadBlob(new Blob(outChunks, { type: r.mimeType || 'video/webm' }), 'kineprompt-completo.' + videoExt()); ac.close(); statusEl.textContent = '✅ Vídeo único baixado'; };
         drawing = true; draw(); ac.resume(); r.start();
         v.onended = () => { URL.revokeObjectURL(v.src); i = 1; playNext(); };
         v.play().catch(() => {});
@@ -1194,7 +1213,10 @@
   // modo de operacao (com/sem reconhecimento de fala) + atalhos
   // customizaveis, definidos na TELA INICIAL (setup)
   // ---------------------------------------------------------------
-  const DEFAULT_KEYS = { start: 'Space', next: 'ArrowRight', redo: 'KeyR' };
+  const DEFAULT_KEYS = { start: 'ArrowDown', next: 'ArrowRight', redo: 'ArrowLeft' };
+  // "_v2": muda a chave do storage pra que os novos padroes (setas) valham
+  // tambem pra quem ja tinha os atalhos antigos (Espaco/R) salvos
+  const KEYS_STORAGE = 'kineprompt_keys_v2';
   let keybindings = loadKeybindings();
   // default = voz; so vira manual se o usuario escolher (ou se o navegador
   // nao suportar reconhecimento, decidido mais abaixo no init)
@@ -1204,14 +1226,21 @@
 
   function loadKeybindings() {
     try {
-      const saved = JSON.parse(localStorage.getItem('kineprompt_keys') || '{}');
+      const saved = JSON.parse(localStorage.getItem(KEYS_STORAGE) || '{}');
       return Object.assign({}, DEFAULT_KEYS, saved);
     } catch (e) { return Object.assign({}, DEFAULT_KEYS); }
   }
   function saveKeybindings() {
-    localStorage.setItem('kineprompt_keys', JSON.stringify(keybindings));
+    localStorage.setItem(KEYS_STORAGE, JSON.stringify(keybindings));
   }
   // nome amigavel de um KeyboardEvent.code (pra mostrar no HUD/setup)
+  // rotulo do atalho de iniciar/parar: setas ↓/↑ sao alias uma da outra
+  function startKeyLabel(code) {
+    if (code === 'ArrowDown') return '↓ / ↑';
+    if (code === 'ArrowUp') return '↑ / ↓';
+    return keyLabel(code);
+  }
+
   function keyLabel(code) {
     if (!code) return '—';
     const map = {
@@ -1227,12 +1256,17 @@
 
   let currentIndex = 0;
   const SAFE_WORDS = ["repetir", "errei"];
-  // so "pronto" confirma (NAO usar "proximo": varias frases terminam com
-  // "proximo" e isso dispararia o avanco sozinho no fim delas)
-  const READY_WORDS = ["pronto"];
-  const REPLAY_WORDS = ["replay"];    // ver o replay do trecho recem-gravado
-  const REDO_WORDS = ["regravar"];    // regravar o trecho atual
+  // comandos aceitos DURANTE a decisao pos-frase (awaitingReady). "proximo"
+  // e seguro aqui porque o buffer de fala e zerado no fim da frase e no fim
+  // da previa (baseIndex), alem do delay readyVoiceAt - a cauda da leitura
+  // nunca chega neste teste. tudo sem acento (passa pelo normalize)
+  const READY_WORDS = ["pronto", "proximo", "proxima", "continuar", "manter", "avancar", "finalizar", "seguir"];
+  const REPLAY_WORDS = ["replay", "rever", "assistir"]; // ver o replay do trecho recem-gravado
+  const REDO_WORDS = ["regravar", "refazer"];           // regravar o trecho atual
   let replaying = false;              // tocando um replay (ignora comandos)
+  let peekIndex = null;      // frase EXIBIDA como ativa sem mudar o estado real:
+                             // depois da previa, mostra a PROXIMA pra pessoa ja
+                             // se preparar (se regravar, volta pra atual)
   let awaitingReady = false; // esperando PRONTO/Espaco pra prosseguir
   let awaitingKind = null;   // 'advance' (acertou) ou 'retry' (errou)
   let readyVoiceAt = 0;      // so aceita "pronto" por VOZ depois deste instante
@@ -1263,7 +1297,10 @@
   let recordStream = null;    // MediaStream da camera+mic (separado do reconhecimento)
   let mediaRecorder = null;   // recorder do segmento (frase) atual
   const recordings = [];      // recordings[indiceDaFrase] = Blob de video
-  let selectedCamId = null;   // deviceId da camera escolhida (webcam ou celular)
+  // dispositivos escolhidos (persistem entre sessoes)
+  let selectedCamId = localStorage.getItem('kineprompt_cam') || null;
+  let selectedMicId = localStorage.getItem('kineprompt_mic') || null;
+  let phoneStreamActive = false; // celular esta sendo usado como camera agora
 
   // a Web Speech API acumula TODOS os resultados desde que o microfone ligou.
   // em vez de guardar/acumular a fala por conta propria (o que dessincronizava
@@ -1315,6 +1352,10 @@
   const btnClipsClose = document.getElementById('btn-clips-close');
   // tela inicial (setup) + HUD de atalhos
   const setupOverlay = document.getElementById('setup-overlay');
+  const setupCamSel = document.getElementById('setup-cam');
+  const setupMicSel = document.getElementById('setup-mic');
+  const setupPhoneBtn = document.getElementById('setup-phone-btn');
+  const setupPhoneStatus = document.getElementById('setup-phone-status');
   const modeGrid = document.getElementById('mode-grid');
   const keysList = document.getElementById('keys-list');
   const setupStartBtn = document.getElementById('setup-start');
@@ -1326,7 +1367,8 @@
   const doneOverlay = document.getElementById('done-overlay');
 
   function updateProgressCounter() {
-    progressCounterEl.textContent = 'frase ' + (currentIndex + 1) + ' / ' + roteiro.length;
+    const shown = (peekIndex === null) ? currentIndex : peekIndex;
+    progressCounterEl.textContent = 'frase ' + (shown + 1) + ' / ' + roteiro.length;
   }
 
   function renderScript() {
@@ -1351,9 +1393,11 @@
         div.appendChild(document.createTextNode(' '));
       });
 
-      if (idx < currentIndex) div.classList.add('done');
-      else if (idx === currentIndex) div.classList.add('active');
-      else if (idx === currentIndex + 1) div.classList.add('next');
+      // peekIndex ativo: exibe outra frase como atual (previa da proxima)
+      const activeIdx = (peekIndex === null) ? currentIndex : peekIndex;
+      if (idx < activeIdx) div.classList.add('done');
+      else if (idx === activeIdx) div.classList.add('active');
+      else if (idx === activeIdx + 1) div.classList.add('next');
 
       listEl.appendChild(div);
     });
@@ -1495,6 +1539,7 @@
     recordings.length = 0; poses.length = 0; updatePlayButton();
     currentIndex = 0;
     awaitingReady = false;
+    peekIndex = null;
     readyPrompt.style.display = 'none';
     hideGhost();
     loadTargetWords();
@@ -1564,6 +1609,7 @@
   function goToSentence(index) {
     cancelCountdown();
     awaitingReady = false;
+    peekIndex = null;
     readyPrompt.style.display = 'none';
     showAlignGhost(); // mantem a pose da frase anterior como referencia
     finalizeSegment(currentIndex, false); // troca manual descarta o trecho atual
@@ -1684,28 +1730,43 @@
     return words.some(w => list.includes(w));
   }
 
-  // toca o replay do trecho recem-gravado sem sair do estado de espera
+  // toca o replay do trecho recem-gravado sem sair do estado de espera.
+  // limpa a memoria de fala no inicio e no fim (mesmo motivo da previa)
   function replayCurrent() {
     const blob = recordings[currentIndex];
     if (!blob) return;
     replaying = true;
+    baseIndex = latestResultsLen;      // descarta o que foi ouvido ate aqui
+    interimEl.textContent = ' ';
+    peekIndex = null;                  // texto na tela acompanha o audio do replay
+    renderScript();
     readyPrompt.style.display = 'none';
     playerEl.style.display = 'block';
     previewEl.style.display = 'none';
     statusText.textContent = "Reproduzindo replay...";
-    playerEl.onended = () => {
-      URL.revokeObjectURL(playerEl.src);
+    const endReplay = () => {
+      if (playerEl.src) { try { URL.revokeObjectURL(playerEl.src); } catch (e) {} }
       playerEl.style.display = 'none';
       if (recordStream) previewEl.style.display = 'block';
       replaying = false;
-      readyVoiceAt = Date.now() + READY_VOICE_DELAY_MS; // ignora audio do replay
+      baseIndex = latestResultsLen;    // descarta o audio do proprio replay
+      interimEl.textContent = ' ';
+      readyVoiceAt = Date.now() + READY_VOICE_DELAY_MS; // ignora eco residual
       if (awaitingReady) {
         readyPrompt.style.display = 'block';
-        statusText.textContent = "Frase concluída - PRONTO / REPLAY / REGRAVAR";
+        statusText.textContent = 'Frase concluída — diga "PRÓXIMO", "REPLAY" ou "REGRAVAR"';
+        // replay acabou: volta a mostrar a PROXIMA frase pra se preparar
+        if (awaitingKind === 'advance' && currentIndex < roteiro.length - 1) {
+          peekIndex = currentIndex + 1;
+          renderScript();
+          scrollToActive();
+        }
       }
     };
+    playerEl.onended = endReplay;
     playerEl.src = URL.createObjectURL(blob);
-    playerEl.play();
+    // se o play falhar, NAO deixa 'replaying' travado (bloquearia os comandos)
+    playerEl.play().catch(endReplay);
   }
 
   // regrava o trecho atual (por voz "regravar")
@@ -1737,28 +1798,45 @@
         '<span>' + (last ? '✔ Finalizar' : '✔ Manter e continuar') +
           ' <kbd>' + keyLabel(keybindings.next) + '</kbd></span>' +
         '<span>↺ Regravar <kbd>' + keyLabel(keybindings.redo) + '</kbd></span>' +
-      '</div>';
+      '</div>' +
+      (speechMode ? '<div class="rp-keys"><span>🎙 Diga: <kbd>PRÓXIMO</kbd> <kbd>REPLAY</kbd> <kbd>REGRAVAR</kbd></span></div>' : '');
     readyPrompt.style.display = 'block';
     statusText.textContent = last ? 'Última frase gravada — Finalizar ou Regravar'
                                   : 'Frase gravada — Manter ou Regravar';
   }
 
-  // roda a previa (replay) do trecho recem-gravado automaticamente
+  // roda a previa (replay) do trecho recem-gravado automaticamente.
+  // LIMPA a memoria de fala (baseIndex) no inicio E no fim: o audio da previa
+  // sai pelos alto-falantes, volta pelo microfone e poluia o reconhecimento
   function startAutoPreview() {
     const blob = recordings[currentIndex];
     if (!blob || phoneRecMode) return; // nada pra prever (ex: celular grava local)
     previewing = true;
+    baseIndex = latestResultsLen;      // descarta tudo que foi ouvido ate aqui
+    interimEl.textContent = ' ';
     playerEl.style.display = 'block';
     previewEl.style.display = 'none';
-    playerEl.onended = () => {
+    const endPreview = () => {
       if (playerEl.src) { try { URL.revokeObjectURL(playerEl.src); } catch (e) {} }
       playerEl.style.display = 'none';
       if (recordStream && isListening) previewEl.style.display = 'block';
       previewing = false;
-      readyVoiceAt = Date.now() + READY_VOICE_DELAY_MS; // ignora audio da previa
+      baseIndex = latestResultsLen;    // descarta o audio da propria previa
+      interimEl.textContent = ' ';
+      readyVoiceAt = Date.now() + READY_VOICE_DELAY_MS; // ignora eco residual
+      // previa acabou: ja mostra a PROXIMA frase no teleprompter pra pessoa
+      // se preparar (so exibicao - regravar volta pra frase atual)
+      if (awaitingReady && awaitingKind === 'advance' && currentIndex < roteiro.length - 1) {
+        peekIndex = currentIndex + 1;
+        renderScript();
+        scrollToActive();
+        statusText.textContent = 'Prévia concluída — próxima frase na tela';
+      }
     };
+    playerEl.onended = endPreview;
     playerEl.src = URL.createObjectURL(blob);
-    playerEl.play().catch(() => {});
+    // se o play falhar, NAO deixa 'previewing' travado (bloquearia os comandos)
+    playerEl.play().catch(endPreview);
   }
 
   // interrompe a previa automatica (ao decidir manter/regravar)
@@ -1788,7 +1866,8 @@
     readyPrompt.innerHTML =
       '⚠️ <b>Ops, saiu diferente!</b> Vamos refazer esta frase:' +
       '<div class="rp-keys"><span>↺ Refazer <kbd>' + keyLabel(keybindings.next) +
-      '</kbd> ou <kbd>' + keyLabel(keybindings.redo) + '</kbd></span></div>';
+      '</kbd> ou <kbd>' + keyLabel(keybindings.redo) + '</kbd></span></div>' +
+      (speechMode ? '<div class="rp-keys"><span>🎙 Diga: <kbd>PRONTO</kbd> ou <kbd>REGRAVAR</kbd></span></div>' : '');
     readyPrompt.style.display = 'block';
     statusText.textContent = "Errou — aperte para refazer";
   }
@@ -1801,6 +1880,7 @@
     const kind = awaitingKind;
     awaitingReady = false;
     awaitingKind = null;
+    peekIndex = null;            // o estado real assume a exibicao de novo
     readyPrompt.style.display = 'none';
     readyPrompt.classList.remove('error');
     if (kind === 'advance') showHoldGhost(); else showAlignGhost();
@@ -1819,47 +1899,139 @@
   // ---------------------------------------------------------------
   // gravacao de VIDEO por segmento (frase): webcam + microfone
   // ---------------------------------------------------------------
+  // mostra na tela o que a camera REALMENTE entregou (resolucao/fps) e o
+  // formato de gravacao - pra conferir a qualidade sem precisar baixar
+  function reportCaptureInfo() {
+    try {
+      const track = recordStream && recordStream.getVideoTracks()[0];
+      const s = track && track.getSettings ? track.getSettings() : null;
+      if (!s || !s.width) return;
+      const fmt = videoExt().toUpperCase();
+      let info = s.width + '×' + s.height + (s.frameRate ? '@' + Math.round(s.frameRate) : '') + ' · ' + fmt;
+      // abaixo de Full HD? diz o maximo que a camera declara suportar
+      if (s.width < 1920) {
+        const cap = track.getCapabilities ? track.getCapabilities() : null;
+        if (cap && cap.width && cap.width.max >= 1920) info += ' ⚠ (câmera suporta 1080p — feche outros apps que a usam)';
+        else if (cap && cap.width) info += ' ⚠ (máximo desta câmera: ' + cap.width.max + 'px)';
+      }
+      console.log('[KinePrompt] captura:', info, '| mime:', pickVideoMime());
+      statusText.textContent = 'Câmera: ' + info +
+        (fmt === 'WEBM' ? ' (navegador sem MP4 — atualize o Chrome)' : '');
+      progressCounterEl.title = 'Gravando em ' + info;
+    } catch (e) { /* getSettings indisponivel */ }
+  }
+
   async function initRecording() {
     if (recordStream) return;
     if (!navigator.mediaDevices || !window.MediaRecorder) return; // navegador sem suporte
+    // tenta Full HD em 3 niveis: 1) EXATO (o navegador e obrigado a entregar
+    // 1920x1080 ou falhar - com "ideal" alguns drivers entregavam 720p),
+    // 2) ideal, 3) sem restricao de fps. para na primeira que der certo
+    const base = {};
+    if (selectedCamId) base.deviceId = { exact: selectedCamId }; // camera escolhida
+    const audioC = selectedMicId ? { deviceId: { exact: selectedMicId } } : true; // mic escolhido
+    const attempts = [
+      Object.assign({ width: { exact: 1920 }, height: { exact: 1080 }, frameRate: { ideal: 30, max: 30 } }, base),
+      Object.assign({ width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } }, base),
+      Object.assign({ width: { ideal: 1920 }, height: { ideal: 1080 } }, base)
+    ];
+    for (const video of attempts) {
+      try {
+        recordStream = await navigator.mediaDevices.getUserMedia({ video: video, audio: audioC });
+        break;
+      } catch (e) { /* proximo nivel (camera nao suporta exato, etc.) */ }
+    }
+    // dispositivo salvo pode ter sido desplugado: tenta de novo sem exigir id
+    if (!recordStream && (selectedCamId || selectedMicId)) {
+      try {
+        recordStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: true
+        });
+      } catch (e) {}
+    }
+    if (!recordStream) return; // sem permissao de camera/mic: segue sem gravar
+    // ultima cartada: se mesmo assim veio menos que 1080p, forca no track
     try {
-      const video = { width: { ideal: 1280 }, height: { ideal: 720 }, aspectRatio: { ideal: 16 / 9 } };
-      if (selectedCamId) video.deviceId = { exact: selectedCamId }; // camera escolhida
-      recordStream = await navigator.mediaDevices.getUserMedia({ video: video, audio: true });
+      const track = recordStream.getVideoTracks()[0];
+      const s = track.getSettings ? track.getSettings() : {};
+      if (s.width && s.width < 1920 && track.applyConstraints) {
+        await track.applyConstraints({ width: 1920, height: 1080 }).catch(() => {});
+      }
+    } catch (e) {}
+    try {
+      reportCaptureInfo(); // mostra na tela a resolucao/formato REAIS
       // self-view ao vivo no canto da tela
       previewEl.srcObject = recordStream;
       previewEl.style.transform = ''; // webcam volta a espelhar (regra do CSS)
       previewEl.style.display = 'block';
       previewEl.play().catch(() => {});
-      populateCameras(); // preenche a lista (labels so aparecem apos permissao)
+      populateDevices(); // preenche as listas (labels so aparecem apos permissao)
     } catch (e) {
       recordStream = null; // sem permissao de camera/mic: segue sem gravar
     }
   }
 
-  // lista as cameras disponiveis (webcam, celular via app, etc) no seletor
-  async function populateCameras() {
+  // lista cameras E microfones nos seletores (topbar + tela inicial).
+  // a opcao "camera do celular" tambem entra na lista: escolher ela abre o QR
+  async function populateDevices() {
     try {
       const devs = await navigator.mediaDevices.enumerateDevices();
       const cams = devs.filter(d => d.kind === 'videoinput');
-      camSelect.innerHTML = '';
-      cams.forEach((c, i) => {
-        const opt = document.createElement('option');
-        opt.value = c.deviceId;
-        opt.textContent = c.label || ('Câmera ' + (i + 1));
-        camSelect.appendChild(opt);
-      });
-      // marca a camera que esta em uso
-      const track = recordStream && recordStream.getVideoTracks()[0];
-      const id = track && track.getSettings && track.getSettings().deviceId;
-      if (id) { selectedCamId = id; camSelect.value = id; }
+      const mics = devs.filter(d => d.kind === 'audioinput');
+
+      // marca a camera/mic realmente em uso no stream atual
+      if (!phoneStreamActive && recordStream) {
+        const vt = recordStream.getVideoTracks()[0];
+        const vid = vt && vt.getSettings && vt.getSettings().deviceId;
+        if (vid) selectedCamId = vid;
+        const at = recordStream.getAudioTracks()[0];
+        const aid = at && at.getSettings && at.getSettings().deviceId;
+        if (aid) selectedMicId = aid;
+      }
+
+      const fillCams = (sel) => {
+        sel.innerHTML = '';
+        cams.forEach((c, i) => {
+          const opt = document.createElement('option');
+          opt.value = c.deviceId;
+          opt.textContent = c.label || ('Câmera ' + (i + 1));
+          sel.appendChild(opt);
+        });
+        const ph = document.createElement('option');
+        ph.value = '__phone__';
+        ph.textContent = '📱 Câmera do celular (QR)';
+        sel.appendChild(ph);
+        sel.value = phoneStreamActive ? '__phone__' : (selectedCamId || (cams[0] ? cams[0].deviceId : ''));
+      };
+      fillCams(camSelect);
+      fillCams(setupCamSel);
       camSelect.style.display = cams.length ? 'inline-block' : 'none';
+
+      setupMicSel.innerHTML = '';
+      mics.forEach((m, i) => {
+        const opt = document.createElement('option');
+        opt.value = m.deviceId;
+        opt.textContent = m.label || ('Microfone ' + (i + 1));
+        setupMicSel.appendChild(opt);
+      });
+      if (selectedMicId) setupMicSel.value = selectedMicId;
     } catch (e) { /* enumerateDevices indisponivel */ }
+  }
+
+  // troca o microfone da gravacao: reinicia o stream com o mic novo.
+  // obs: o reconhecimento de fala (Web Speech) sempre usa o mic PADRAO do
+  // sistema - a escolha aqui vale pro audio gravado no video
+  async function switchMic(deviceId) {
+    selectedMicId = deviceId || null;
+    localStorage.setItem('kineprompt_mic', deviceId || '');
+    if (phoneStreamActive) return; // celular grava o proprio audio
+    await switchCamera(selectedCamId);
   }
 
   // troca a fonte de video (webcam <-> celular) reiniciando o stream
   async function switchCamera(deviceId) {
     selectedCamId = deviceId;
+    phoneStreamActive = false; // voltou pra uma camera local
     const wasListening = isListening;
     if (mediaRecorder) finalizeSegment(currentIndex, false); // descarta trecho em andamento
     if (recordStream) { recordStream.getTracks().forEach(t => t.stop()); recordStream = null; }
@@ -1966,6 +2138,10 @@
       recordStream.getTracks().forEach(t => t.stop());
     }
     recordStream = remoteStream;
+    phoneStreamActive = true;
+    setupPhoneStatus.textContent = '✅ Celular conectado como câmera';
+    populateDevices(); // seletores passam a mostrar "📱 Câmera do celular"
+    reportCaptureInfo();
     previewEl.srcObject = remoteStream;
     previewEl.style.transform = 'none'; // celular ja vem na orientacao certa
     previewEl.style.display = 'block';
@@ -2001,13 +2177,50 @@
     previewEl.style.display = 'none';
   }
 
-  // escolhe um formato de video suportado pelo navegador
+  // escolhe um formato de video suportado pelo navegador.
+  // MP4 (H.264) primeiro: abre em qualquer editor/player. WebM como fallback.
+  // navegador NAO grava video sem compressao (AVI bruto seria ~1,5 GB/min);
+  // o equivalente pratico e bitrate altissimo (abaixo) = visualmente sem perdas
   function pickVideoMime() {
-    const opts = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    // varias grafias de codec: cada versao de navegador aceita umas e nega
+    // outras - testa da mais especifica pra mais generica
+    const opts = [
+      'video/mp4;codecs=avc1.64002A,mp4a.40.2', // H.264 High + AAC
+      'video/mp4;codecs=avc1.640033,mp4a.40.2',
+      'video/mp4;codecs=avc1.4D002A,mp4a.40.2', // H.264 Main + AAC
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2', // H.264 Baseline + AAC
+      'video/mp4;codecs=avc1,mp4a.40.2',
+      'video/mp4;codecs=h264,aac',
+      'video/mp4;codecs=avc1,opus',
+      'video/mp4',
+      'video/webm;codecs=h264,opus',            // H.264 em WebM (Chrome antigo)
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm'
+    ];
     for (const t of opts) {
       if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
     }
     return '';
+  }
+
+  // extensao de arquivo coerente com o formato realmente gravado
+  function videoExt() {
+    return pickVideoMime().indexOf('video/mp4') === 0 ? 'mp4' : 'webm';
+  }
+
+  // cria um MediaRecorder de QUALIDADE MAXIMA: 80 Mbps de video (o codec
+  // usa o quanto conseguir ate esse teto) + 256 kbps de audio. se o
+  // navegador recusar as opcoes, cai pro recorder padrao em vez de quebrar
+  function makeRecorder(stream) {
+    const mime = pickVideoMime();
+    const opts = { videoBitsPerSecond: 80000000, audioBitsPerSecond: 256000 };
+    if (mime) opts.mimeType = mime;
+    try { return new MediaRecorder(stream, opts); }
+    catch (e) {
+      try { return mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+      catch (e2) { return new MediaRecorder(stream); }
+    }
   }
 
   // comeca a gravar (video) a frase atual do zero
@@ -2016,9 +2229,7 @@
     if (phoneRecMode) { sendPhone({ cmd: 'start', idx: currentIndex }); return; }
     if (!recordStream) return;
     const chunks = [];
-    const mime = pickVideoMime();
-    const rec = mime ? new MediaRecorder(recordStream, { mimeType: mime })
-                     : new MediaRecorder(recordStream);
+    const rec = makeRecorder(recordStream); // qualidade maxima (50 Mbps)
     rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     rec._chunks = chunks;
     mediaRecorder = rec;
@@ -2155,6 +2366,7 @@
     getAudioCtx();
     playerEl.style.display = 'none';
     awaitingReady = false;
+    peekIndex = null; // regravar: a frase ATUAL volta pra tela
     readyPrompt.style.display = 'none';
     currentIndex = Math.max(0, Math.min(roteiro.length - 1, idx));
     scriptEdit.style.display = 'none';
@@ -2255,16 +2467,15 @@
     const first = segs[0];
     vid.src = URL.createObjectURL(first);
     startWhenSized(() => {
-      const mime = pickVideoMime();
       const mixed = new MediaStream([
         ...canvasStream.getVideoTracks(),
         ...dest.stream.getAudioTracks()
       ]);
-      rec = mime ? new MediaRecorder(mixed, { mimeType: mime }) : new MediaRecorder(mixed);
+      rec = makeRecorder(mixed); // qualidade maxima tambem no video unico
       rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       rec.onstop = () => {
         const out = new Blob(chunks, { type: rec.mimeType || 'video/webm' });
-        downloadBlob(out, 'teleprompter-completo.webm');
+        downloadBlob(out, 'teleprompter-completo.' + videoExt());
         ac.close();
         btnDownloadAll.disabled = false;
         btnDownloadAll.textContent = prevLabel;
@@ -2325,15 +2536,58 @@
   // ---------------------------------------------------------------
   // 3. Normalização e Fuzzy Matching
   // ---------------------------------------------------------------
+  // numero inteiro -> palavras em pt-BR ("25" -> "vinte e cinco").
+  // usado pra igualar digito e fala: o roteiro pode ter "1" e a API de voz
+  // devolver "um" (ou o contrario) - expandindo os DOIS lados pra palavras,
+  // sempre casa
+  function numberToWordsPt(n) {
+    const units = ['zero','um','dois','tres','quatro','cinco','seis','sete','oito','nove',
+      'dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
+    const tens = ['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'];
+    const hundreds = ['','cento','duzentos','trezentos','quatrocentos','quinhentos','seiscentos','setecentos','oitocentos','novecentos'];
+    if (n < 20) return units[n];
+    if (n < 100) {
+      const r = n % 10;
+      return tens[Math.floor(n / 10)] + (r ? ' e ' + units[r] : '');
+    }
+    if (n === 100) return 'cem';
+    if (n < 1000) {
+      const r = n % 100;
+      return hundreds[Math.floor(n / 100)] + (r ? ' e ' + numberToWordsPt(r) : '');
+    }
+    if (n < 1000000) {
+      const th = Math.floor(n / 1000), r = n % 1000;
+      const pre = th === 1 ? 'mil' : numberToWordsPt(th) + ' mil';
+      if (!r) return pre;
+      const joiner = (r < 100 || r % 100 === 0) ? ' e ' : ' ';
+      return pre + joiner + numberToWordsPt(r);
+    }
+    // numeros gigantes: fala digito a digito
+    return String(n).split('').map(d => units[+d]).join(' ');
+  }
+
+  // troca tokens 100% numericos pelas palavras equivalentes
+  function expandNumbers(words) {
+    const out = [];
+    words.forEach(w => {
+      if (/^\d+$/.test(w) && w.length <= 7) {
+        numberToWordsPt(parseInt(w, 10)).split(' ').forEach(p => out.push(p));
+      } else {
+        out.push(w);
+      }
+    });
+    return out;
+  }
+
   function normalize(str) {
-    return str
+    return expandNumbers(str
       .toLowerCase()
       .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove acentos
       .replace(/[^\w\s]/g, ' ') // troca pontuacao por espaco (hifen vira separador,
                                  // igual a fala real - "bem-vindos" -> "bem vindos")
       .trim()
       .split(/\s+/)
-      .filter(Boolean);
+      .filter(Boolean));
   }
 
   function levenshtein(a, b) {
@@ -2411,6 +2665,20 @@
       else { s++; }
     }
     return { hits, endT: t };
+  }
+
+  // junta as palavras de TODAS as hipoteses de todos os trechos desde 'from'.
+  // usado pra detectar COMANDOS de voz (proximo/replay/regravar): o
+  // bestAlternativeWords escolhe a hipotese que mais parece com o ROTEIRO e
+  // acabava descartando justamente a hipotese que continha o comando
+  function wordsFromAllAlternatives(results, from) {
+    const out = [];
+    for (let i = from; i < results.length; i++) {
+      for (let a = 0; a < results[i].length; a++) {
+        normalize(results[i][a].transcript).forEach(w => out.push(w));
+      }
+    }
+    return out;
   }
 
   // entre as N hipoteses que a API devolve pra um trecho, devolve a que MAIS
@@ -2503,11 +2771,17 @@
         return;
       }
 
-      // 2. aguardando confirmacao: escuta PRONTO / REPLAY / REGRAVAR, e so
-      // depois do delay (pra ignorar a cauda da fala da frase anterior)
+      // 2. aguardando confirmacao: escuta PRONTO/PROXIMO / REPLAY / REGRAVAR,
+      // so depois do delay (pra ignorar a cauda da fala da frase anterior).
+      // aqui usa TODAS as hipoteses da API: o filtro "melhor pro roteiro"
+      // descartava a hipotese que continha o comando
       if (awaitingReady) {
         if (!replaying && !previewing && Date.now() >= readyVoiceAt) {
-          const heard = finalWords.concat(interimWords);
+          const heard = wordsFromAllAlternatives(results, baseIndex);
+          // feedback do que o microfone esta ouvindo durante a decisao
+          // (vai pra barra de status do topo - o rodape foi removido)
+          const best = finalWords.concat(interimWords);
+          if (best.length) statusText.textContent = '🎙 Ouvi: ' + best.join(' ');
           if (containsAny(heard, REDO_WORDS)) { redoCurrent(); }
           else if (awaitingKind === 'advance' && recordings[currentIndex] &&
                    containsAny(heard, REPLAY_WORDS)) { replayCurrent(); }
@@ -2588,6 +2862,7 @@
     if (speechMode && recognition) recognition.stop();
     finalizeSegment(currentIndex, false); // trecho incompleto e descartado
     awaitingReady = false;
+    peekIndex = null;
     readyPrompt.style.display = 'none';
     stopPreview();
     hideGhost(); // esconde o ghost mas mantem a ultima pose guardada
@@ -2657,7 +2932,16 @@
   btnClips.addEventListener('click', openClips);
   btnClipsClose.addEventListener('click', closeClips);
   btnDownloadAll.addEventListener('click', downloadAllMerged);
-  camSelect.addEventListener('change', () => switchCamera(camSelect.value));
+  // escolha de camera (topbar ou tela inicial): a opcao "celular" abre o QR
+  function onCamChosen(val) {
+    if (val === '__phone__') { openPhoneCamera(); return; }
+    localStorage.setItem('kineprompt_cam', val);
+    switchCamera(val);
+  }
+  camSelect.addEventListener('change', () => onCamChosen(camSelect.value));
+  setupCamSel.addEventListener('change', () => onCamChosen(setupCamSel.value));
+  setupMicSel.addEventListener('change', () => switchMic(setupMicSel.value));
+  setupPhoneBtn.addEventListener('click', openPhoneCamera);
   btnPhone.addEventListener('click', openPhoneCamera);
   phoneCloseBtn.addEventListener('click', closePhoneModal);
   // editor inline: ao sair do foco, aplica o texto digitado
@@ -2669,7 +2953,7 @@
   });
   // atualiza a lista quando plugar/despligar uma camera (ex: conectar o celular)
   if (navigator.mediaDevices) {
-    navigator.mediaDevices.addEventListener('devicechange', populateCameras);
+    navigator.mediaDevices.addEventListener('devicechange', populateDevices);
   }
 
   // ---------------------------------------------------------------
@@ -2708,7 +2992,9 @@
       chip.className = 'hud-chip';
       chip.dataset.action = it.action;
       chip.innerHTML =
-        '<span class="hc-key">' + keyLabel(keybindings[it.action]) + '</span>' +
+        '<span class="hc-key">' + (it.action === 'start'
+          ? startKeyLabel(keybindings.start)
+          : keyLabel(keybindings[it.action])) + '</span>' +
         '<span class="hc-emoji">' + it.emoji + '</span>' +
         '<span class="hc-label">' + it.label + '</span>';
       hudChips.appendChild(chip);
@@ -2751,6 +3037,7 @@
     pendingKeys = Object.assign({}, keybindings);
     pendingMode = SpeechRecognition ? (speechMode ? 'voice' : 'manual') : 'manual';
     capturingBtn = null;
+    populateDevices(); // lista de cameras/microfones sempre atualizada
     renderSetup();
     setupOverlay.classList.add('visible');
     updateHudVisibility();
@@ -2767,7 +3054,11 @@
       }
     });
     keysList.querySelectorAll('.key-cap').forEach(btn => {
-      if (btn !== capturingBtn) btn.textContent = keyLabel(pendingKeys[btn.dataset.action]);
+      if (btn !== capturingBtn) {
+        btn.textContent = btn.dataset.action === 'start'
+          ? startKeyLabel(pendingKeys.start)
+          : keyLabel(pendingKeys[btn.dataset.action]);
+      }
     });
   }
 
@@ -2844,7 +3135,12 @@
     if (code === keybindings.start) { e.preventDefault(); flashHud('start'); handleStart(); }
     else if (code === keybindings.next) { e.preventDefault(); flashHud('next'); handleNext(); }
     else if (code === keybindings.redo) { e.preventDefault(); flashHud('redo'); handleRedo(); }
-    else if (code === 'ArrowLeft') { e.preventDefault(); manualPrev(); }      // extra: frase anterior
+    // ↑ funciona como alias de iniciar/parar quando o atalho e ↓ (e vice-versa)
+    else if ((code === 'ArrowUp' && keybindings.start === 'ArrowDown') ||
+             (code === 'ArrowDown' && keybindings.start === 'ArrowUp')) {
+      e.preventDefault(); flashHud('start'); handleStart();
+    }
+    else if (code === 'ArrowLeft') { e.preventDefault(); manualPrev(); }      // extra: frase anterior (se ← estiver livre)
     else if (code === 'Escape') { cancelCurrentTake(); }                       // extra: cancelar take
   });
 
