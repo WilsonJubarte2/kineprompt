@@ -127,6 +127,30 @@
   .lay-btn:hover { color: var(--fg); background: #24242e; }
   .lay-btn.active { background: var(--brand); color: #fff; }
 
+  /* barra de progresso do roteiro: um segmento por frase */
+  #progress-bar {
+    flex: 0 0 auto;
+    display: flex; gap: 3px;
+    padding: 5px 16px 6px;
+    background: #101015;
+    border-bottom: 1px solid var(--line);
+  }
+  .pb-seg { flex: 1; height: 6px; border-radius: 99px; background: #26262f; }
+  .pb-seg.rec { background: #2ecc71; }
+  .pb-seg.cur { box-shadow: 0 0 0 2px var(--brand); background: #3a3a46; }
+  .pb-seg.cur.rec { background: #2ecc71; }
+
+  /* medidor de volume do microfone (VU) ao lado do ponto vermelho */
+  #vu {
+    width: 64px; height: 8px; border-radius: 99px;
+    background: #26262f; overflow: hidden;
+  }
+  #vu-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #2ecc71 0%, #2ecc71 60%, #ffb14d 80%, #ff4d4d 100%);
+    transition: width .08s linear;
+  }
+
   /* palco ocupa todo o espaco entre a barra e a transcricao */
   #stage {
     flex: 1 1 auto;
@@ -869,6 +893,17 @@
         <div class="kr-text"><div class="kr-title">Câmera do celular</div><div class="kr-sub" id="setup-phone-status">Escaneie um QR e filme pelo celular</div></div>
         <button class="key-cap" id="setup-phone-btn">Conectar</button>
       </div>
+      <div class="key-row">
+        <span class="kr-emoji">🎬</span>
+        <div class="kr-text"><div class="kr-title">Prévia automática</div><div class="kr-sub">Rever cada trecho logo após gravar</div></div>
+        <select id="setup-preview" class="dev-select">
+          <option value="1">Sim — velocidade normal</option>
+          <option value="1.25">Sim — 1.25× mais rápida</option>
+          <option value="1.5">Sim — 1.5× mais rápida</option>
+          <option value="2">Sim — 2× mais rápida</option>
+          <option value="off">Não — pular a prévia</option>
+        </select>
+      </div>
     </div>
 
     <div class="setup-step-label"><span class="num">3</span> Seus atalhos de teclado</div>
@@ -920,6 +955,7 @@
     <span class="tb-sep"></span>
     <div id="status-mini">
       <div id="mic-dot"></div>
+      <div id="vu" title="Volume do microfone"><div id="vu-fill"></div></div>
       <span id="status-text">Pronto para gravar</span>
     </div>
   </div>
@@ -934,6 +970,10 @@
     <span class="tb-sep"></span>
     <select id="cam-select" title="Fonte de câmera (webcam ou celular)"></select>
     <button id="btn-phone" class="tb-btn" title="Usar a câmera do celular (QR)">📱 Celular</button>
+    <span class="tb-sep"></span>
+    <button id="btn-export" class="tb-btn icon" title="Baixar o roteiro (.txt)">⬇</button>
+    <button id="btn-import" class="tb-btn icon" title="Carregar roteiro de um arquivo (.txt)">⬆</button>
+    <input id="import-file" type="file" accept=".txt,text/plain" hidden>
   </div>
 
   <div class="tb-group">
@@ -946,6 +986,9 @@
     <button id="btn-clips" class="tb-btn" title="Trechos gravados" hidden>🎞</button>
   </div>
 </div>
+
+<!-- barra de progresso: um segmento por frase (verde = gravada) -->
+<div id="progress-bar"></div>
 
 <!-- modal do QR pra parear o celular como camera -->
 <div id="phone-modal">
@@ -1000,6 +1043,7 @@
   <div id="clips-header">
     <span id="clips-title">🎬 Revisão dos vídeos <span id="clips-count"></span></span>
     <div class="clips-actions">
+      <button id="btn-srt" title="Legendas com os tempos do vídeo único — importa direto no Premiere/DaVinci/CapCut">📝 Legendas (.srt)</button>
       <button id="btn-download-all">🎞 Renderizar vídeo único</button>
       <button id="btn-clips-close">✕ Fechar</button>
     </div>
@@ -1257,6 +1301,8 @@
   // default = voz; so vira manual se o usuario escolher (ou se o navegador
   // nao suportar reconhecimento, decidido mais abaixo no init)
   let speechMode = localStorage.getItem('kineprompt_mode') !== 'manual';
+  // previa automatica: '1' | '1.25' | '1.5' | '2' (velocidade) ou 'off' (pular)
+  let previewPref = localStorage.getItem('kineprompt_preview') || '1';
   let previewing = false;   // tocando a previa automatica pos-frase
   let setupDone = false;    // usuario ja passou pela tela inicial nesta sessao
 
@@ -1390,6 +1436,13 @@
   const setupOverlay = document.getElementById('setup-overlay');
   const setupCamSel = document.getElementById('setup-cam');
   const setupMicSel = document.getElementById('setup-mic');
+  const setupPreviewSel = document.getElementById('setup-preview');
+  const progressBarEl = document.getElementById('progress-bar');
+  const vuFill = document.getElementById('vu-fill');
+  const btnExport = document.getElementById('btn-export');
+  const btnImport = document.getElementById('btn-import');
+  const importFile = document.getElementById('import-file');
+  const btnSrt = document.getElementById('btn-srt');
   const setupPhoneBtn = document.getElementById('setup-phone-btn');
   const setupPhoneStatus = document.getElementById('setup-phone-status');
   const modeGrid = document.getElementById('mode-grid');
@@ -1405,6 +1458,19 @@
   function updateProgressCounter() {
     const shown = (peekIndex === null) ? currentIndex : peekIndex;
     progressCounterEl.textContent = 'frase ' + (shown + 1) + ' / ' + roteiro.length;
+    renderProgressBar();
+  }
+
+  // barra segmentada no topo: verde = frase ja gravada, contorno = atual
+  function renderProgressBar() {
+    const shown = (peekIndex === null) ? currentIndex : peekIndex;
+    progressBarEl.innerHTML = '';
+    roteiro.forEach((f, i) => {
+      const seg = document.createElement('div');
+      seg.className = 'pb-seg' + (recordings[i] ? ' rec' : '') + (i === shown ? ' cur' : '');
+      seg.title = (i + 1) + '. ' + f.text;
+      progressBarEl.appendChild(seg);
+    });
   }
 
   function renderScript() {
@@ -1836,6 +1902,7 @@
     };
     playerEl.onended = endReplay;
     playerEl.src = URL.createObjectURL(blob);
+    playerEl.playbackRate = parseFloat(previewPref) || 1; // mesma velocidade da previa
     // se o play falhar, NAO deixa 'replaying' travado (bloquearia os comandos)
     playerEl.play().catch(endReplay);
   }
@@ -1882,6 +1949,16 @@
   function startAutoPreview() {
     const blob = recordings[currentIndex];
     if (!blob || phoneRecMode) return; // nada pra prever (ex: celular grava local)
+    // previa desligada nas preferencias: vai direto pra decisao gigante
+    if (previewPref === 'off') {
+      enterReplayUi('decide');
+      if (awaitingKind === 'advance' && currentIndex < roteiro.length - 1) {
+        peekIndex = currentIndex + 1;
+        renderScript();
+        scrollToActive();
+      }
+      return;
+    }
     previewing = true;
     baseIndex = latestResultsLen;      // descarta tudo que foi ouvido ate aqui
     interimEl.textContent = ' ';
@@ -1909,6 +1986,7 @@
     };
     playerEl.onended = endPreview;
     playerEl.src = URL.createObjectURL(blob);
+    playerEl.playbackRate = parseFloat(previewPref) || 1; // previa acelerada (preferencia)
     // se o play falhar, NAO deixa 'previewing' travado (bloquearia os comandos)
     playerEl.play().catch(endPreview);
   }
@@ -2042,6 +2120,7 @@
     } catch (e) {}
     try {
       reportCaptureInfo(); // mostra na tela a resolucao/formato REAIS
+      initVuMeter();       // medidor de volume do mic
       // self-view ao vivo no canto da tela
       previewEl.srcObject = recordStream;
       previewEl.style.transform = ''; // webcam volta a espelhar (regra do CSS)
@@ -2224,6 +2303,7 @@
     setupPhoneStatus.textContent = '✅ Celular conectado como câmera';
     populateDevices(); // seletores passam a mostrar "📱 Câmera do celular"
     reportCaptureInfo();
+    initVuMeter();
     previewEl.srcObject = remoteStream;
     previewEl.style.transform = 'none'; // celular ja vem na orientacao certa
     previewEl.style.display = 'block';
@@ -2249,6 +2329,36 @@
     }, 1500);
     if (wasListening) startSegment();
   }
+
+  // ---------------------------------------------------------------
+  // medidor de volume do microfone (VU): barrinha ao vivo no topo -
+  // evita gravar tudo com audio baixo/mudo sem perceber
+  // ---------------------------------------------------------------
+  let vuAnalyser = null;
+  let vuSrc = null;
+  let vuData = null;
+
+  function initVuMeter() {
+    const ctx = getAudioCtx();
+    if (!ctx || !recordStream || !recordStream.getAudioTracks().length) return;
+    try {
+      if (vuSrc) { try { vuSrc.disconnect(); } catch (e) {} }
+      vuSrc = ctx.createMediaStreamSource(recordStream);
+      vuAnalyser = ctx.createAnalyser();
+      vuAnalyser.fftSize = 512;
+      vuSrc.connect(vuAnalyser); // so analisa; nao vai pros alto-falantes
+      vuData = new Uint8Array(vuAnalyser.fftSize);
+    } catch (e) { vuAnalyser = null; }
+  }
+
+  setInterval(() => {
+    if (!vuAnalyser) { vuFill.style.width = '0%'; return; }
+    vuAnalyser.getByteTimeDomainData(vuData);
+    let sum = 0;
+    for (let i = 0; i < vuData.length; i++) { const d = (vuData[i] - 128) / 128; sum += d * d; }
+    const rms = Math.sqrt(sum / vuData.length);
+    vuFill.style.width = Math.min(100, Math.round(rms * 300)) + '%';
+  }, 100);
 
   function stopRecordStream() {
     if (recordStream) {
@@ -2328,6 +2438,7 @@
     rec.onstop = () => {
       if (keep && rec._chunks.length) {
         recordings[index] = new Blob(rec._chunks, { type: rec.mimeType || 'video/webm' });
+        mergedDownloaded = false; // ha material novo ainda nao baixado
         updatePlayButton();
       }
       if (onSaved) onSaved(); // video pronto (blob disponivel)
@@ -2343,6 +2454,7 @@
     const has = hasAnyRecording();
     btnPlay.hidden = !has;
     btnClips.hidden = !has;
+    renderProgressBar();
     if (clipsPanel.classList.contains('visible')) renderClips();
   }
 
@@ -2435,6 +2547,7 @@
       playerEl.style.display = 'none';
       if (recordStream) previewEl.style.display = 'block';
     };
+    playerEl.playbackRate = 1; // revisao toca em velocidade normal
     playerEl.src = URL.createObjectURL(recordings[idx]);
     playerEl.play();
   }
@@ -2478,6 +2591,18 @@
     });
   }
 
+  // -------------------------------------------------------------
+  // protecao: os videos so existem na memoria da aba - avisa antes
+  // de fechar/recarregar se ainda nao foram baixados
+  // -------------------------------------------------------------
+  let mergedDownloaded = false;
+  window.addEventListener('beforeunload', (e) => {
+    if (hasAnyRecording() && !mergedDownloaded) {
+      e.preventDefault();
+      e.returnValue = ''; // dispara o dialogo padrao do navegador
+    }
+  });
+
   function downloadBlob(blob, filename) {
     if (!blob) return;
     const url = URL.createObjectURL(blob);
@@ -2488,6 +2613,85 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  // -------------------------------------------------------------
+  // roteiro: exportar/importar .txt
+  // -------------------------------------------------------------
+  function exportScript() {
+    const text = roteiro.map(f => f.text).join('\n');
+    downloadBlob(new Blob([text], { type: 'text/plain;charset=utf-8' }), 'roteiro.txt');
+  }
+
+  // carrega um texto como roteiro novo (zera gravacoes e volta pro inicio)
+  function importScriptText(text) {
+    text = (text || '').replace(/\r/g, '').trim();
+    if (!text) return;
+    const novo = splitScript(text);
+    if (!novo.length) return;
+    if (isListening) stopRecognition();
+    localStorage.setItem('kineprompt_script', text);
+    lastScriptText = text;
+    roteiro = novo;
+    recordings.length = 0; poses.length = 0; updatePlayButton();
+    currentIndex = 0; peekIndex = null; awaitingReady = false;
+    readyPrompt.style.display = 'none';
+    hideGhost();
+    loadTargetWords();
+    showEditor();
+    updateProgressCounter();
+    statusText.textContent = 'Roteiro carregado! (' + novo.length + ' frases)';
+  }
+
+  // -------------------------------------------------------------
+  // legendas SRT: uma legenda por frase, com os tempos EXATOS do
+  // video unico renderizado - importa direto no editor de video
+  // (Premiere / DaVinci / CapCut) e ja vira legenda sincronizada
+  // -------------------------------------------------------------
+  // duracao de um Blob de video (workaround: webm do MediaRecorder as vezes
+  // vem com duration=Infinity - forcar um seek gigante revela a duracao real)
+  function blobDuration(blob) {
+    return new Promise((resolve) => {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.muted = true;
+      const finish = (d) => { try { URL.revokeObjectURL(v.src); } catch (e) {} resolve(isFinite(d) && d > 0 ? d : 0); };
+      v.onloadedmetadata = () => {
+        if (v.duration === Infinity || isNaN(v.duration)) {
+          v.currentTime = 1e7; // seek alem do fim: o navegador corrige e expoe a duracao
+          v.ontimeupdate = () => { v.ontimeupdate = null; finish(v.duration); };
+        } else finish(v.duration);
+      };
+      v.onerror = () => finish(0);
+      v.src = URL.createObjectURL(blob);
+    });
+  }
+
+  function srtTime(sec) {
+    const ms = Math.max(0, Math.round(sec * 1000));
+    const p = (n, l) => String(n).padStart(l, '0');
+    return p(Math.floor(ms / 3600000), 2) + ':' + p(Math.floor(ms / 60000) % 60, 2) + ':' +
+           p(Math.floor(ms / 1000) % 60, 2) + ',' + p(ms % 1000, 3);
+  }
+
+  async function downloadSrt() {
+    const idxs = [];
+    for (let i = 0; i < roteiro.length; i++) if (recordings[i]) idxs.push(i);
+    if (!idxs.length) return;
+    btnSrt.disabled = true;
+    const prev = btnSrt.textContent;
+    btnSrt.textContent = 'Gerando…';
+    let t = 0, n = 1;
+    const out = [];
+    for (const i of idxs) {
+      const d = (await blobDuration(recordings[i])) || 3; // fallback: 3s
+      out.push(n++ + '\n' + srtTime(t) + ' --> ' + srtTime(t + d) + '\n' + roteiro[i].text + '\n');
+      t += d;
+    }
+    downloadBlob(new Blob([out.join('\n')], { type: 'text/plain;charset=utf-8' }), 'legendas.srt');
+    btnSrt.disabled = false;
+    btnSrt.textContent = prev;
+    statusText.textContent = 'Legendas .srt geradas (tempos do vídeo único)';
   }
 
   // junta todos os trechos num unico video: reproduz cada segmento num
@@ -2559,6 +2763,7 @@
       rec.onstop = () => {
         const out = new Blob(chunks, { type: rec.mimeType || 'video/webm' });
         downloadBlob(out, 'teleprompter-completo.' + videoExt());
+        mergedDownloaded = true; // pode fechar a aba sem aviso
         ac.close();
         btnDownloadAll.disabled = false;
         btnDownloadAll.textContent = prevLabel;
@@ -2609,6 +2814,7 @@
       renderScript();
       scrollToActive();
       statusText.textContent = "Reproduzindo video (" + p + "/" + segs.length + ")...";
+      playerEl.playbackRate = 1;
       playerEl.src = URL.createObjectURL(seg.blob);
       playerEl.play();
     }
@@ -3027,6 +3233,17 @@
   setupMicSel.addEventListener('change', () => switchMic(setupMicSel.value));
   setupPhoneBtn.addEventListener('click', openPhoneCamera);
   btnPhone.addEventListener('click', openPhoneCamera);
+  btnSrt.addEventListener('click', downloadSrt);
+  btnExport.addEventListener('click', exportScript);
+  btnImport.addEventListener('click', () => importFile.click());
+  importFile.addEventListener('change', () => {
+    const f = importFile.files && importFile.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => importScriptText(String(reader.result));
+    reader.readAsText(f, 'utf-8');
+    importFile.value = ''; // permite importar o mesmo arquivo de novo
+  });
   phoneCloseBtn.addEventListener('click', closePhoneModal);
   // editor inline: ao sair do foco, aplica o texto digitado
   scriptEdit.addEventListener('blur', commitEditor);
@@ -3122,6 +3339,7 @@
     pendingMode = SpeechRecognition ? (speechMode ? 'voice' : 'manual') : 'manual';
     capturingBtn = null;
     populateDevices(); // lista de cameras/microfones sempre atualizada
+    setupPreviewSel.value = previewPref;
     renderSetup();
     setupOverlay.classList.add('visible');
     updateHudVisibility();
@@ -3195,6 +3413,8 @@
     speechMode = (pendingMode === 'voice') && !!SpeechRecognition;
     saveKeybindings();
     localStorage.setItem('kineprompt_mode', speechMode ? 'voice' : 'manual');
+    previewPref = setupPreviewSel.value;
+    localStorage.setItem('kineprompt_preview', previewPref);
     setupDone = true;
     setupOverlay.classList.remove('visible');
     applyMode();
