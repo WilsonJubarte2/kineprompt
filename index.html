@@ -786,52 +786,45 @@
   #setup-start:active { transform: translateY(1px); }
 
   /* ============================================================= */
-  /* HUD de atalhos: SEMPRE visivel, feedback grande e obvio        */
+  /* HUD de atalhos: integrado na barra superior (nao tapa a tela)  */
   /* ============================================================= */
   #shortcut-hud {
-    position: fixed; left: 14px; bottom: 46px; z-index: 55;
-    display: none; flex-direction: column; gap: 8px;
-    background: rgba(14,14,20,0.82);
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--line-2); border-radius: 14px;
-    padding: 12px 13px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    max-width: 240px;
+    display: none; align-items: center; gap: 7px;
+    background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 4px 8px;
   }
-  #shortcut-hud.visible { display: flex; }
-  #hud-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  #hud-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-dim); }
-  #hud-settings { background: none; border: none; color: var(--fg-dim); font-size: 15px; cursor: pointer; padding: 0 2px; }
+  #shortcut-hud.visible { display: inline-flex; }
+  #hud-settings { background: none; border: none; color: var(--fg-dim); font-size: 14px; cursor: pointer; padding: 0 2px; }
   #hud-settings:hover { color: #fff; }
-  #hud-min { background: none; border: none; color: var(--fg-dim); font-size: 14px; cursor: pointer; padding: 0 2px; line-height: 1; }
+  #hud-min { background: none; border: none; color: var(--fg-dim); font-size: 13px; cursor: pointer; padding: 0 2px; line-height: 1; }
   #hud-min:hover { color: #fff; }
 
-  /* HUD minimizado: vira uma pilula pequena; clique expande de volta */
-  #shortcut-hud.min { padding: 9px 12px; cursor: pointer; }
+  /* HUD minimizado: so o modo + botao de expandir */
+  #shortcut-hud.min { cursor: pointer; }
   #shortcut-hud.min #hud-chips,
-  #shortcut-hud.min #hud-mode-tag,
   #shortcut-hud.min #hud-settings { display: none; }
-  #shortcut-hud.minflash { background: var(--brand); }
-  #shortcut-hud.minflash #hud-title { color: #fff; }
-  #hud-mode-tag { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; }
+  #shortcut-hud.minflash { background: var(--brand); border-color: var(--brand); }
+  #hud-mode-tag { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
   #hud-mode-tag.voice { color: var(--accent-listen); background: rgba(46,204,113,0.14); }
   #hud-mode-tag.manual { color: var(--brand-2); background: rgba(124,92,255,0.16); }
 
+  #hud-chips { display: inline-flex; gap: 4px; }
   .hud-chip {
-    display: flex; align-items: center; gap: 10px;
-    padding: 7px 8px; border-radius: 10px;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 6px; border-radius: 7px;
     transition: background .12s;
   }
   .hud-chip .hc-key {
-    min-width: 60px; text-align: center;
+    text-align: center;
     background: #0d0d12; color: #fff; border: 1px solid var(--line-2);
-    border-bottom-width: 3px;
-    border-radius: 8px; padding: 6px 8px;
-    font-size: 13px; font-weight: 700; font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    border-bottom-width: 2px;
+    border-radius: 6px; padding: 3px 7px;
+    font-size: 11.5px; font-weight: 700; font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
     white-space: nowrap;
   }
-  .hud-chip .hc-label { font-size: 13px; color: var(--fg); font-weight: 500; }
-  .hud-chip .hc-emoji { font-size: 15px; }
+  .hud-chip .hc-label { font-size: 11.5px; color: var(--fg); font-weight: 500; white-space: nowrap; }
+  .hud-chip .hc-emoji { display: none; } /* compacto: sem emoji no header */
   .hud-chip.flash { background: var(--brand); }
   .hud-chip.flash .hc-key { background: #fff; color: var(--brand); border-color: #fff; }
   .hud-chip.flash .hc-label { color: #fff; }
@@ -942,16 +935,7 @@
   </div>
 </div>
 
-<!-- HUD de atalhos: sempre visivel durante a gravacao -->
-<div id="shortcut-hud">
-  <div id="hud-head">
-    <span id="hud-title">⌨ Atalhos</span>
-    <span id="hud-mode-tag"></span>
-    <button id="hud-settings" title="Trocar modo / atalhos">⚙</button>
-    <button id="hud-min" title="Minimizar">—</button>
-  </div>
-  <div id="hud-chips"></div>
-</div>
+<!-- (o HUD de atalhos agora vive dentro da barra superior) -->
 
 <!-- banner de gravacao concluida (antes de abrir a revisao) -->
 <div id="done-overlay">
@@ -985,6 +969,14 @@
     <button id="btn-export" class="tb-btn icon" title="Baixar o roteiro (.txt)">⬇</button>
     <button id="btn-import" class="tb-btn icon" title="Carregar roteiro de um arquivo (.txt)">⬆</button>
     <input id="import-file" type="file" accept=".txt,text/plain" hidden>
+  </div>
+
+  <!-- HUD de atalhos integrado no header (nao tapa a leitura) -->
+  <div id="shortcut-hud" title="Atalhos">
+    <span id="hud-mode-tag"></span>
+    <div id="hud-chips"></div>
+    <button id="hud-settings" title="Trocar modo / atalhos">⚙</button>
+    <button id="hud-min" title="Minimizar">—</button>
   </div>
 
   <div class="tb-group">
@@ -3294,8 +3286,8 @@
   // ---------------------------------------------------------------
   function renderHud() {
     const items = [
-      { action: 'start', emoji: '▶', label: 'Iniciar / Parar' },
-      { action: 'next',  emoji: '➡', label: speechMode ? 'Próxima / Pular' : 'Próxima / Salvar' },
+      { action: 'start', emoji: '▶', label: 'Iniciar/Parar' },
+      { action: 'next',  emoji: '➡', label: speechMode ? 'Próxima' : 'Próxima/Salvar' },
       { action: 'redo',  emoji: '↺', label: 'Regravar' }
     ];
     hudChips.innerHTML = '';
