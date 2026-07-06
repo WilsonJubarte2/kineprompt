@@ -803,6 +803,16 @@
   #hud-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-dim); }
   #hud-settings { background: none; border: none; color: var(--fg-dim); font-size: 15px; cursor: pointer; padding: 0 2px; }
   #hud-settings:hover { color: #fff; }
+  #hud-min { background: none; border: none; color: var(--fg-dim); font-size: 14px; cursor: pointer; padding: 0 2px; line-height: 1; }
+  #hud-min:hover { color: #fff; }
+
+  /* HUD minimizado: vira uma pilula pequena; clique expande de volta */
+  #shortcut-hud.min { padding: 9px 12px; cursor: pointer; }
+  #shortcut-hud.min #hud-chips,
+  #shortcut-hud.min #hud-mode-tag,
+  #shortcut-hud.min #hud-settings { display: none; }
+  #shortcut-hud.minflash { background: var(--brand); }
+  #shortcut-hud.minflash #hud-title { color: #fff; }
   #hud-mode-tag { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; }
   #hud-mode-tag.voice { color: var(--accent-listen); background: rgba(46,204,113,0.14); }
   #hud-mode-tag.manual { color: var(--brand-2); background: rgba(124,92,255,0.16); }
@@ -935,9 +945,10 @@
 <!-- HUD de atalhos: sempre visivel durante a gravacao -->
 <div id="shortcut-hud">
   <div id="hud-head">
-    <span id="hud-title">Atalhos</span>
+    <span id="hud-title">⌨ Atalhos</span>
     <span id="hud-mode-tag"></span>
     <button id="hud-settings" title="Trocar modo / atalhos">⚙</button>
+    <button id="hud-min" title="Minimizar">—</button>
   </div>
   <div id="hud-chips"></div>
 </div>
@@ -3304,7 +3315,39 @@
     hudModeTag.className = speechMode ? 'voice' : 'manual';
   }
 
+  // HUD minimizavel: vira uma pilula "⌨ Atalhos"; clique expande de volta
+  const hudMinBtn = document.getElementById('hud-min');
+  let hudMin = localStorage.getItem('kineprompt_hudmin') === '1';
+
+  function applyHudMin() {
+    shortcutHud.classList.toggle('min', hudMin);
+    hudMinBtn.textContent = hudMin ? '▸' : '—';
+    hudMinBtn.title = hudMin ? 'Expandir atalhos' : 'Minimizar atalhos';
+  }
+  hudMinBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    hudMin = !hudMin;
+    localStorage.setItem('kineprompt_hudmin', hudMin ? '1' : '0');
+    applyHudMin();
+  });
+  // minimizado: clicar em qualquer lugar da pilula expande
+  shortcutHud.addEventListener('click', () => {
+    if (!hudMin) return;
+    hudMin = false;
+    localStorage.setItem('kineprompt_hudmin', '0');
+    applyHudMin();
+  });
+  applyHudMin();
+
   function flashHud(action) {
+    // minimizado: pisca a pilula inteira pra confirmar a tecla
+    if (hudMin) {
+      shortcutHud.classList.remove('minflash');
+      void shortcutHud.offsetWidth;
+      shortcutHud.classList.add('minflash');
+      setTimeout(() => shortcutHud.classList.remove('minflash'), 350);
+      return;
+    }
     const chip = hudChips.querySelector('.hud-chip[data-action="' + action + '"]');
     if (!chip) return;
     chip.classList.remove('flash');
