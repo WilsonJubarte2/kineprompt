@@ -620,6 +620,36 @@
     50% { opacity: 1; }
   }
 
+  /* ===== modo REPLAY: fundo muda de cor + banner gigante de decisao ===== */
+  body.replaying {
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #123a44 0%, transparent 60%),
+      #071a20; /* azul-petroleo: bem diferente do fundo normal */
+  }
+  /* sobe o player e abre espaco pro banner embaixo */
+  body.replaying #player { top: 38%; max-height: 54vh; }
+  /* o aviso pequeno some: o banner grande assume a decisao */
+  body.replaying #ready-prompt { display: none !important; }
+
+  #replay-banner {
+    position: fixed; left: 50%; bottom: 5vh; transform: translateX(-50%);
+    z-index: 45; display: none; text-align: center; max-width: 94vw;
+  }
+  body.replaying #replay-banner { display: block; animation: popIn .3s ease; }
+  #replay-banner .rb-main {
+    font-size: clamp(28px, 5vw, 46px); font-weight: 800; color: #fff;
+    letter-spacing: .02em; text-shadow: 0 4px 24px rgba(0,0,0,0.7);
+    white-space: nowrap;
+  }
+  #replay-banner .rb-main .ok { color: #2ecc71; }
+  #replay-banner .rb-main .redo { color: #ffb14d; }
+  #replay-banner .rb-sub { font-size: 16px; color: #9fd8e8; margin-top: 10px; }
+  #replay-banner kbd {
+    background: #0d0d12; color: #fff; border: 1px solid var(--line-2); border-bottom-width: 3px;
+    border-radius: 7px; padding: 3px 10px; font-size: 14px; font-weight: 700;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  }
+
   /* player de video do playback: centralizado e grande */
   #player {
     position: fixed;
@@ -958,6 +988,12 @@
 
 <!-- player de video pro playback da gravacao final -->
 <video id="player" playsinline controls></video>
+
+<!-- banner gigante do modo replay: previa tocando / decisao regravar x prosseguir -->
+<div id="replay-banner">
+  <div class="rb-main"></div>
+  <div class="rb-sub"></div>
+</div>
 
 <!-- painel de revisao: ver 1 a 1, remover, regravar, renderizar tudo -->
 <div id="clips-panel">
@@ -1580,6 +1616,7 @@
     readyPrompt.style.display = 'none';
     hideGhost();
     stopPreview();
+    exitReplayUi();
     statusText.textContent = "Roteiro concluído!";
     btnToggle.textContent = "▶ Iniciar";
     btnToggle.classList.remove('rec');
@@ -1608,6 +1645,8 @@
   // ---------------------------------------------------------------
   function goToSentence(index) {
     cancelCountdown();
+    stopPreview();
+    exitReplayUi();
     awaitingReady = false;
     peekIndex = null;
     readyPrompt.style.display = 'none';
@@ -1730,6 +1769,34 @@
     return words.some(w => list.includes(w));
   }
 
+  // ---------------------------------------------------------------
+  // modo REPLAY: fundo em outra cor + banner gigante de decisao
+  // ---------------------------------------------------------------
+  const replayBanner = document.getElementById('replay-banner');
+  const rbMain = replayBanner.querySelector('.rb-main');
+  const rbSub = replayBanner.querySelector('.rb-sub');
+
+  // phase: 'preview' (video tocando) ou 'decide' (escolher o que fazer)
+  function enterReplayUi(phase) {
+    document.body.classList.add('replaying');
+    if (phase === 'preview') {
+      rbMain.innerHTML = '🎬 PRÉVIA DO TRECHO';
+      rbSub.textContent = 'Assista e decida em seguida…';
+    } else {
+      const last = currentIndex >= roteiro.length - 1;
+      rbMain.innerHTML =
+        '<span class="redo">↺ REGRAVAR</span> &nbsp;ou&nbsp; <span class="ok">' +
+        (last ? 'FINALIZAR ✔' : 'PROSSEGUIR ➡') + '</span>';
+      rbSub.innerHTML =
+        'Regravar <kbd>' + keyLabel(keybindings.redo) + '</kbd> · ' +
+        (last ? 'Finalizar' : 'Prosseguir') + ' <kbd>' + keyLabel(keybindings.next) + '</kbd>' +
+        (speechMode ? ' &nbsp;·&nbsp; 🎙 diga <kbd>REGRAVAR</kbd>, <kbd>REPLAY</kbd> ou <kbd>PRÓXIMO</kbd>' : '');
+    }
+  }
+  function exitReplayUi() {
+    document.body.classList.remove('replaying');
+  }
+
   // toca o replay do trecho recem-gravado sem sair do estado de espera.
   // limpa a memoria de fala no inicio e no fim (mesmo motivo da previa)
   function replayCurrent() {
@@ -1740,6 +1807,7 @@
     interimEl.textContent = ' ';
     peekIndex = null;                  // texto na tela acompanha o audio do replay
     renderScript();
+    enterReplayUi('preview');          // fundo muda de cor + banner grande
     readyPrompt.style.display = 'none';
     playerEl.style.display = 'block';
     previewEl.style.display = 'none';
@@ -1753,6 +1821,7 @@
       interimEl.textContent = ' ';
       readyVoiceAt = Date.now() + READY_VOICE_DELAY_MS; // ignora eco residual
       if (awaitingReady) {
+        enterReplayUi('decide');       // banner gigante: regravar x prosseguir
         readyPrompt.style.display = 'block';
         statusText.textContent = 'Frase concluída — diga "PRÓXIMO", "REPLAY" ou "REGRAVAR"';
         // replay acabou: volta a mostrar a PROXIMA frase pra se preparar
@@ -1761,6 +1830,8 @@
           renderScript();
           scrollToActive();
         }
+      } else {
+        exitReplayUi();
       }
     };
     playerEl.onended = endReplay;
@@ -1814,6 +1885,7 @@
     previewing = true;
     baseIndex = latestResultsLen;      // descarta tudo que foi ouvido ate aqui
     interimEl.textContent = ' ';
+    enterReplayUi('preview');          // fundo muda de cor + banner grande
     playerEl.style.display = 'block';
     previewEl.style.display = 'none';
     const endPreview = () => {
@@ -1824,8 +1896,10 @@
       baseIndex = latestResultsLen;    // descarta o audio da propria previa
       interimEl.textContent = ' ';
       readyVoiceAt = Date.now() + READY_VOICE_DELAY_MS; // ignora eco residual
-      // previa acabou: ja mostra a PROXIMA frase no teleprompter pra pessoa
-      // se preparar (so exibicao - regravar volta pra frase atual)
+      // previa acabou: banner vira a DECISAO gigante (regravar x prosseguir)
+      if (awaitingReady) enterReplayUi('decide'); else exitReplayUi();
+      // e ja mostra a PROXIMA frase no teleprompter pra pessoa se preparar
+      // (so exibicao - regravar volta pra frase atual)
       if (awaitingReady && awaitingKind === 'advance' && currentIndex < roteiro.length - 1) {
         peekIndex = currentIndex + 1;
         renderScript();
@@ -1877,6 +1951,7 @@
   function confirmReady() {
     if (!awaitingReady || activeCountdown) return;
     stopPreview();               // corta a previa automatica, se estiver tocando
+    exitReplayUi();
     const kind = awaitingKind;
     awaitingReady = false;
     awaitingKind = null;
@@ -2370,6 +2445,7 @@
     closeClips();
     cancelCountdown();
     stopPreview();
+    exitReplayUi();
     getAudioCtx();
     playerEl.style.display = 'none';
     awaitingReady = false;
@@ -2872,6 +2948,7 @@
     peekIndex = null;
     readyPrompt.style.display = 'none';
     stopPreview();
+    exitReplayUi();
     hideGhost(); // esconde o ghost mas mantem a ultima pose guardada
     // no modo voz, recognition.onend restaura a UI; no manual, faz aqui
     if (!(speechMode && recognition)) {
