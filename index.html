@@ -918,13 +918,18 @@
       </div>
       <div class="key-row">
         <span class="kr-emoji">➡</span>
-        <div class="kr-text"><div class="kr-title">Próxima frase</div><div class="kr-sub">Salva o trecho e vai pra próxima</div></div>
+        <div class="kr-text"><div class="kr-title">Próxima frase</div><div class="kr-sub">Salva o trecho e vai pra próxima (inicia na 1ª, finaliza na última)</div></div>
         <button class="key-cap" data-action="next"></button>
       </div>
       <div class="key-row">
         <span class="kr-emoji">↺</span>
         <div class="kr-text"><div class="kr-title">Regravar</div><div class="kr-sub">Refaz a frase atual do zero</div></div>
         <button class="key-cap" data-action="redo"></button>
+      </div>
+      <div class="key-row">
+        <span class="kr-emoji">⏸</span>
+        <div class="kr-text"><div class="kr-title">Pausar</div><div class="kr-sub">Encerra a gravação e abre seus vídeos</div></div>
+        <button class="key-cap" disabled>Espaço</button>
       </div>
     </div>
 
@@ -3547,13 +3552,19 @@
   // ---------------------------------------------------------------
   function handleStart() {
     if (awaitingReady) { confirmReady(); return; } // durante a decisao, tambem confirma
-    if (isListening) stopRecognition();
+    if (isListening) {
+      stopRecognition();
+      // encerrou a gravacao: ja abre o carrossel dos videos + downloads
+      if (hasAnyRecording()) openClips();
+    }
     else beginWithCountdown();
   }
 
   function handleNext() {
     if (awaitingReady) { confirmReady(); return; }        // manter e continuar
     if (isListening && !speechMode) { onSentenceSuccess(); return; } // manual: finaliza o take
+    if (isListening && currentIndex >= roteiro.length - 1) { onSentenceSuccess(); return; } // ultima frase (voz): → finaliza o ciclo
+    if (!isListening && !previewing && !hasAnyRecording()) { handleStart(); return; } // nada gravado ainda: → tambem INICIA
     manualNext();                                          // voz/parado: pula frase
   }
 
@@ -3570,7 +3581,8 @@
     const items = [
       { action: 'start', emoji: '▶', label: 'Iniciar/Parar' },
       { action: 'next',  emoji: '➡', label: speechMode ? 'Próxima' : 'Próxima/Salvar' },
-      { action: 'redo',  emoji: '↺', label: 'Regravar' }
+      { action: 'redo',  emoji: '↺', label: 'Regravar' },
+      { action: 'pause', emoji: '⏸', label: 'Pausar', fixedKey: 'Espaço' } // tecla fixa
     ];
     hudChips.innerHTML = '';
     items.forEach(it => {
@@ -3578,9 +3590,9 @@
       chip.className = 'hud-chip';
       chip.dataset.action = it.action;
       chip.innerHTML =
-        '<span class="hc-key">' + (it.action === 'start'
+        '<span class="hc-key">' + (it.fixedKey ? it.fixedKey : (it.action === 'start'
           ? startKeyLabel(keybindings.start)
-          : keyLabel(keybindings[it.action])) + '</span>' +
+          : keyLabel(keybindings[it.action]))) + '</span>' +
         '<span class="hc-emoji">' + it.emoji + '</span>' +
         '<span class="hc-label">' + it.label + '</span>';
       hudChips.appendChild(chip);
@@ -3760,6 +3772,12 @@
     else if ((code === 'ArrowUp' && keybindings.start === 'ArrowDown') ||
              (code === 'ArrowDown' && keybindings.start === 'ArrowUp')) {
       e.preventDefault(); flashHud('start'); handleStart();
+    }
+    // extra fixo: Espaço PAUSA/encerra a gravacao (se nao estiver customizado pra outra acao)
+    else if (code === 'Space' && keybindings.start !== 'Space' &&
+             keybindings.next !== 'Space' && keybindings.redo !== 'Space') {
+      e.preventDefault(); // evita re-clicar botao focado com Espaço
+      if (isListening) { flashHud('pause'); handleStart(); }
     }
     else if (code === 'ArrowLeft') { e.preventDefault(); manualPrev(); }      // extra: frase anterior (se ← estiver livre)
     else if (code === 'Escape') { cancelCurrentTake(); }                       // extra: cancelar take
