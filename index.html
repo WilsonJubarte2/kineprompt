@@ -1041,13 +1041,13 @@
   <div class="rb-sub"></div>
 </div>
 
-<!-- painel de revisao: ver 1 a 1, remover, regravar, renderizar tudo -->
+<!-- painel de revisao: ver 1 a 1, remover, regravar, baixar tudo -->
 <div id="clips-panel">
   <div id="clips-header">
     <span id="clips-title">🎬 Revisão dos vídeos <span id="clips-count"></span></span>
     <div class="clips-actions">
-      <button id="btn-srt" title="Legendas com os tempos do vídeo único — importa direto no Premiere/DaVinci/CapCut">📝 Legendas (.srt)</button>
-      <button id="btn-download-all">🎞 Renderizar vídeo único</button>
+      <button id="btn-srt" title="Legendas com os tempos dos trechos em sequência — importa direto no Premiere/DaVinci/CapCut">📝 Legendas (.srt)</button>
+      <button id="btn-download-all">⬇ Baixar todos os trechos</button>
       <button id="btn-clips-close">✕ Fechar</button>
     </div>
   </div>
@@ -1188,45 +1188,27 @@
         b.onclick = fn; return b;
       };
       idxs.forEach(i => wrap.appendChild(mkBtn('⬇ Baixar frase ' + (i + 1),
-        () => downloadBlob(phoneRecordings[i], 'frase-' + (i + 1) + '.' + videoExt()))));
+        () => downloadVideoBlob(phoneRecordings[i], 'frase-' + (i + 1) + '.' + videoExt()))));
       if (idxs.length > 1) {
-        const all = mkBtn('⬇ Baixar tudo (1 vídeo)', () => phoneMerge(idxs.map(i => phoneRecordings[i])));
+        const all = mkBtn('⬇ Baixar todas as frases', () => phoneDownloadAll(idxs));
         all.style.background = '#2ecc71'; all.style.borderColor = '#2ecc71'; all.style.color = '#06240f';
         wrap.appendChild(all);
       }
       sender.appendChild(wrap);
     }
 
-    // junta os trechos num video so, no proprio celular (canvas + audio)
-    async function phoneMerge(segs) {
-      if (!segs.length) return;
-      statusEl.textContent = 'Gerando vídeo único (aguarde)...';
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const v = document.createElement('video'); v.playsInline = true;
-      const ac = new (window.AudioContext || window.webkitAudioContext)();
-      const dest = ac.createMediaStreamDestination();
-      ac.createMediaElementSource(v).connect(dest);
-      let drawing = false;
-      const draw = () => { if (!drawing) return; if (v.readyState >= 2) ctx.drawImage(v, 0, 0, canvas.width, canvas.height); requestAnimationFrame(draw); };
-      let i = 0, r = null; const outChunks = [];
-      const playNext = () => {
-        if (i >= segs.length) { drawing = false; if (r && r.state !== 'inactive') r.stop(); return; }
-        v.src = URL.createObjectURL(segs[i++]);
-        v.onended = () => { URL.revokeObjectURL(v.src); playNext(); };
-        v.play().catch(() => {});
-      };
-      v.src = URL.createObjectURL(segs[0]);
-      v.addEventListener('loadedmetadata', () => {
-        canvas.width = v.videoWidth; canvas.height = v.videoHeight;
-        const mixed = new MediaStream([...canvas.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
-        r = makeRecorder(mixed);
-        r.ondataavailable = (e) => { if (e.data && e.data.size) outChunks.push(e.data); };
-        r.onstop = () => { downloadBlob(new Blob(outChunks, { type: r.mimeType || 'video/webm' }), 'kineprompt-completo.' + videoExt()); ac.close(); statusEl.textContent = '✅ Vídeo único baixado'; };
-        drawing = true; draw(); ac.resume(); r.start();
-        v.onended = () => { URL.revokeObjectURL(v.src); i = 1; playNext(); };
-        v.play().catch(() => {});
-      }, { once: true });
+    // baixa todas as frases como videos curtos separados (nada e regravado:
+    // arquivos originais - leve, sem risco de corromper em aparelho fraco)
+    async function phoneDownloadAll(idxs) {
+      let n = 0;
+      for (const i of idxs) {
+        n++;
+        statusEl.textContent = 'Baixando ' + n + ' de ' + idxs.length + '…';
+        await downloadVideoBlob(phoneRecordings[i], 'frase-' + (i + 1) + '.' + videoExt());
+        // respiro entre downloads pro navegador nao engolir nenhum da sequencia
+        await new Promise(r => setTimeout(r, 400));
+      }
+      statusEl.textContent = '✅ ' + idxs.length + ' vídeos baixados';
     }
 
     function connect() {
@@ -1676,7 +1658,7 @@
   }
 
   // fim do roteiro: para a sessao, mostra o banner de conclusao e abre a
-  // tela de revisao (ver 1 a 1, remover, regravar, renderizar tudo)
+  // tela de revisao (ver 1 a 1, remover, regravar, baixar tudo)
   function finishAndReview() {
     isListening = false; // impede o startSegment do callback de confirmReady
     if (speechMode && recognition) { try { recognition.stop(); } catch (e) {} }
@@ -2087,13 +2069,16 @@
   async function initRecording() {
     if (recordStream) return;
     if (!navigator.mediaDevices || !window.MediaRecorder) return; // navegador sem suporte
-    // tenta Full HD em 3 niveis: 1) EXATO (o navegador e obrigado a entregar
-    // 1920x1080 ou falhar - com "ideal" alguns drivers entregavam 720p),
-    // 2) ideal, 3) sem restricao de fps. para na primeira que der certo
+    // tenta Full HD em 4 niveis: 1) EXATO 1080p + EXATO 30fps (o navegador e
+    // obrigado a entregar ou falhar - com "ideal" alguns drivers entregavam
+    // 720p ou 60fps), 2) exato 1080p + fps ideal, 3) ideal, 4) sem restricao
+    // de fps. para na primeira que der certo. fps cravado em 30: gravar a 60
+    // dobra o trabalho do encoder e derruba frames (video "travado")
     const base = {};
     if (selectedCamId) base.deviceId = { exact: selectedCamId }; // camera escolhida
     const audioC = selectedMicId ? { deviceId: { exact: selectedMicId } } : true; // mic escolhido
     const attempts = [
+      Object.assign({ width: { exact: 1920 }, height: { exact: 1080 }, frameRate: { exact: 30 } }, base),
       Object.assign({ width: { exact: 1920 }, height: { exact: 1080 }, frameRate: { ideal: 30, max: 30 } }, base),
       Object.assign({ width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } }, base),
       Object.assign({ width: { ideal: 1920 }, height: { ideal: 1080 } }, base)
@@ -2108,17 +2093,20 @@
     if (!recordStream && (selectedCamId || selectedMicId)) {
       try {
         recordStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: true
+          video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } }, audio: true
         });
       } catch (e) {}
     }
     if (!recordStream) return; // sem permissao de camera/mic: segue sem gravar
-    // ultima cartada: se mesmo assim veio menos que 1080p, forca no track
+    // ultima cartada: se mesmo assim veio menos que 1080p ou fps errado, forca no track
     try {
       const track = recordStream.getVideoTracks()[0];
       const s = track.getSettings ? track.getSettings() : {};
       if (s.width && s.width < 1920 && track.applyConstraints) {
         await track.applyConstraints({ width: 1920, height: 1080 }).catch(() => {});
+      }
+      if (s.frameRate && Math.round(s.frameRate) !== 30 && track.applyConstraints) {
+        await track.applyConstraints({ frameRate: 30 }).catch(() => {});
       }
     } catch (e) {}
     try {
@@ -2606,6 +2594,356 @@
     }
   });
 
+  // -------------------------------------------------------------
+  // conserto de MP4: o Chrome grava MP4 "fragmentado" (formato de
+  // streaming). ele toca no navegador, mas confunde editores de video
+  // (Premiere/CapCut/DaVinci mostram so os primeiros segundos, porque
+  // o cabecalho do arquivo nao tem o indice completo). esta funcao
+  // remonta o arquivo como MP4 comum - mesma imagem e som, byte a
+  // byte, sem recodificar; so a "embalagem" muda.
+  // -------------------------------------------------------------
+  async function fixMp4Blob(blob) {
+    if (!blob || blob.size < 64) return blob;
+    if (blob.type && blob.type.indexOf('mp4') === -1) return blob; // webm etc: nao mexe
+
+    const u64 = (dv, o) => dv.getUint32(o) * 4294967296 + dv.getUint32(o + 4);
+    const fourcc = (dv, o) => String.fromCharCode(dv.getUint8(o), dv.getUint8(o + 1), dv.getUint8(o + 2), dv.getUint8(o + 3));
+    const readDv = async (off, len) => new DataView(await blob.slice(off, Math.min(blob.size, off + len)).arrayBuffer());
+
+    // lista as caixas (boxes) contidas num trecho de um DataView
+    function boxes(dv, start, end) {
+      const out = [];
+      for (let o = start; o + 8 <= end;) {
+        let sz = dv.getUint32(o);
+        const ty = fourcc(dv, o + 4);
+        let hl = 8;
+        if (sz === 1) { sz = u64(dv, o + 8); hl = 16; }
+        else if (sz === 0) sz = end - o;
+        if (sz < hl || o + sz > end) break;
+        out.push({ type: ty, start: o, size: sz, body: o + hl });
+        o += sz;
+      }
+      return out;
+    }
+    const find = (list, ty) => list.find(b => b.type === ty);
+
+    // ---- varre o arquivo: precisa de moov + fragmentos (moof) ----
+    let ftypRaw = null, moovOff = -1, moovSize = 0;
+    const moofs = [];
+    for (let off = 0; off + 8 <= blob.size;) {
+      const hd = await readDv(off, 16);
+      let size = hd.getUint32(0);
+      const type = fourcc(hd, 4);
+      let hl = 8;
+      if (size === 1) { size = u64(hd, 8); hl = 16; }
+      else if (size === 0) size = blob.size - off;
+      if (size < hl) break;
+      if (type === 'ftyp') ftypRaw = new Uint8Array(await blob.slice(off, off + size).arrayBuffer());
+      else if (type === 'moov' && moovOff < 0) { moovOff = off; moovSize = size; }
+      else if (type === 'moof') moofs.push({ off, size });
+      off += size;
+    }
+    if (moovOff < 0 || !moofs.length) return blob; // ja e MP4 comum
+
+    const moovBuf = new Uint8Array(await blob.slice(moovOff, moovOff + moovSize).arrayBuffer());
+    const moovDv = new DataView(moovBuf.buffer);
+    const moovBox = boxes(moovDv, 0, moovSize)[0];
+    if (!moovBox || moovBox.type !== 'moov') return blob;
+    const moovKids = boxes(moovDv, moovBox.body, moovSize);
+    const mvhd = find(moovKids, 'mvhd');
+    const mvex = find(moovKids, 'mvex');
+    if (!mvhd) return blob;
+    const mvhdVer = moovDv.getUint8(mvhd.body);
+    const movieTs = moovDv.getUint32(mvhd.body + (mvhdVer ? 20 : 12));
+
+    // valores-padrao de amostra (trex) usados pelos fragmentos
+    const trexByTrack = {};
+    if (mvex) for (const b of boxes(moovDv, mvex.body, mvex.start + mvex.size)) {
+      if (b.type !== 'trex') continue;
+      trexByTrack[moovDv.getUint32(b.body + 4)] = {
+        dur: moovDv.getUint32(b.body + 12),
+        size: moovDv.getUint32(b.body + 16),
+        flags: moovDv.getUint32(b.body + 20)
+      };
+    }
+
+    // ---- trilhas declaradas no moov (video / audio) ----
+    const tracks = [];
+    for (const trak of moovKids.filter(b => b.type === 'trak')) {
+      const tk = boxes(moovDv, trak.body, trak.start + trak.size);
+      const tkhd = find(tk, 'tkhd');
+      const mdia = find(tk, 'mdia');
+      if (!tkhd || !mdia) return blob;
+      const md = boxes(moovDv, mdia.body, mdia.start + mdia.size);
+      const mdhd = find(md, 'mdhd');
+      const hdlr = find(md, 'hdlr');
+      const minf = find(md, 'minf');
+      if (!mdhd || !hdlr || !minf) return blob;
+      const stbl = find(boxes(moovDv, minf.body, minf.start + minf.size), 'stbl');
+      if (!stbl) return blob;
+      const stsd = find(boxes(moovDv, stbl.body, stbl.start + stbl.size), 'stsd');
+      if (!stsd) return blob;
+      const tkhdVer = moovDv.getUint8(tkhd.body);
+      const mdhdVer = moovDv.getUint8(mdhd.body);
+      tracks.push({
+        trak,
+        trackId: moovDv.getUint32(tkhd.body + (tkhdVer ? 20 : 12)),
+        timescale: moovDv.getUint32(mdhd.body + (mdhdVer ? 20 : 12)),
+        handler: fourcc(moovDv, hdlr.body + 8),
+        stsd,
+        dur: [], size: [], cts: [], sync: [], chunks: [], decode: 0
+      });
+    }
+    if (!tracks.length) return blob;
+    const trackById = {};
+    tracks.forEach(t => { trackById[t.trackId] = t; });
+
+    // ---- le cada fragmento e recolhe a tabela de amostras ----
+    for (const mf of moofs) {
+      const dv = new DataView(await blob.slice(mf.off, mf.off + mf.size).arrayBuffer());
+      const mfBox = boxes(dv, 0, mf.size)[0];
+      if (!mfBox) return blob;
+      for (const traf of boxes(dv, mfBox.body, mf.size).filter(b => b.type === 'traf')) {
+        const tks = boxes(dv, traf.body, traf.start + traf.size);
+        const tfhd = find(tks, 'tfhd');
+        if (!tfhd) continue;
+        const tfFlags = dv.getUint32(tfhd.body) & 0xffffff;
+        let o = tfhd.body + 4;
+        const tr = trackById[dv.getUint32(o)]; o += 4;
+        if (!tr) continue;
+        const trex = trexByTrack[tr.trackId] || { dur: 0, size: 0, flags: 0 };
+        let base = mf.off; // padrao do Chrome: offsets relativos ao moof
+        if (tfFlags & 0x1) { base = u64(dv, o); o += 8; }
+        if (tfFlags & 0x2) o += 4;
+        let defDur = trex.dur, defSize = trex.size, defFlags = trex.flags;
+        if (tfFlags & 0x8) { defDur = dv.getUint32(o); o += 4; }
+        if (tfFlags & 0x10) { defSize = dv.getUint32(o); o += 4; }
+        if (tfFlags & 0x20) { defFlags = dv.getUint32(o); o += 4; }
+        // tfdt = relogio real deste fragmento. a soma das duracoes das
+        // amostras pode divergir dele (frame rate variavel): ajusta a
+        // duracao da amostra anterior pra fechar a conta - senao audio
+        // e video dessincronizam no editor
+        const tfdt = find(tks, 'tfdt');
+        if (tfdt && tr.dur.length) {
+          const baseTime = dv.getUint8(tfdt.body) === 1 ? u64(dv, tfdt.body + 4) : dv.getUint32(tfdt.body + 4);
+          const gap = baseTime - tr.decode;
+          if (gap) {
+            const last = tr.dur.length - 1;
+            const nd = Math.max(0, tr.dur[last] + gap);
+            tr.decode += nd - tr.dur[last];
+            tr.dur[last] = nd;
+          }
+        }
+        let runPos = -1;
+        for (const trun of tks.filter(b => b.type === 'trun')) {
+          const trVer = dv.getUint8(trun.body);
+          const trFlags = dv.getUint32(trun.body) & 0xffffff;
+          let p = trun.body + 4;
+          const count = dv.getUint32(p); p += 4;
+          let dataStart = runPos >= 0 ? runPos : base;
+          if (trFlags & 0x1) { dataStart = base + dv.getInt32(p); p += 4; }
+          let firstFlags = -1;
+          if (trFlags & 0x4) { firstFlags = dv.getUint32(p); p += 4; }
+          let chunkBytes = 0;
+          for (let s = 0; s < count; s++) {
+            let d = defDur, sz = defSize, fl = defFlags, ct = 0;
+            if (trFlags & 0x100) { d = dv.getUint32(p); p += 4; }
+            if (trFlags & 0x200) { sz = dv.getUint32(p); p += 4; }
+            if (trFlags & 0x400) { fl = dv.getUint32(p); p += 4; }
+            if (trFlags & 0x800) { ct = trVer ? dv.getInt32(p) : dv.getUint32(p); p += 4; }
+            if (s === 0 && firstFlags >= 0) fl = firstFlags;
+            tr.decode += d;
+            tr.dur.push(d);
+            tr.size.push(sz);
+            tr.cts.push(ct);
+            tr.sync.push(!(fl & 0x10000));
+            chunkBytes += sz;
+          }
+          if (count) tr.chunks.push({ src: dataStart, bytes: chunkBytes, count });
+          runPos = dataStart + chunkBytes;
+        }
+      }
+    }
+
+    const liveTracks = tracks.filter(t => t.size.length);
+    if (!liveTracks.length) return blob;
+
+    // ordem dos dados no arquivo novo = mesma ordem do original
+    const allChunks = [];
+    liveTracks.forEach(t => t.chunks.forEach(c => allChunks.push(c)));
+    allChunks.sort((a, b) => a.src - b.src);
+    let mdatPayload = 0;
+    for (const c of allChunks) {
+      if (c.src < 0 || c.src + c.bytes > blob.size) return blob; // tabela inconsistente
+      c.dst = mdatPayload;
+      mdatPayload += c.bytes;
+    }
+
+    // ---- montadores de caixas ----
+    function box(type) {
+      let len = 8;
+      for (let i = 1; i < arguments.length; i++) len += arguments[i].length;
+      const out = new Uint8Array(len);
+      new DataView(out.buffer).setUint32(0, len);
+      for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+      let q = 8;
+      for (let i = 1; i < arguments.length; i++) { out.set(arguments[i], q); q += arguments[i].length; }
+      return out;
+    }
+    function u32arr(nums) {
+      const out = new Uint8Array(nums.length * 4);
+      const d = new DataView(out.buffer);
+      nums.forEach((n, i) => d.setUint32(i * 4, n >>> 0));
+      return out;
+    }
+    function u64arr(nums) {
+      const out = new Uint8Array(nums.length * 8);
+      const d = new DataView(out.buffer);
+      nums.forEach((n, i) => { d.setUint32(i * 8, Math.floor(n / 4294967296)); d.setUint32(i * 8 + 4, n >>> 0); });
+      return out;
+    }
+    function cat(a, b) {
+      const out = new Uint8Array(a.length + b.length);
+      out.set(a, 0); out.set(b, a.length);
+      return out;
+    }
+    const rawOf = (b) => moovBuf.slice(b.start, b.start + b.size);
+    // troca o campo "duration" de mvhd/tkhd/mdhd (posicao depende da versao)
+    function patchDur(bytes, ver, off64, off32, val) {
+      const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      if (ver === 1) { d.setUint32(8 + off64, Math.floor(val / 4294967296)); d.setUint32(8 + off64 + 4, val >>> 0); }
+      else d.setUint32(8 + off32, Math.min(val, 0xffffffff) >>> 0);
+    }
+    function runLen(vals) { // codifica [count,value] repetidos
+      const runs = [];
+      for (const v of vals) {
+        if (runs.length && runs[runs.length - 1][1] === v) runs[runs.length - 1][0]++;
+        else runs.push([1, v]);
+      }
+      return runs;
+    }
+
+    // tabelas de indice (stbl) que o MP4 comum exige no cabecalho
+    function buildStbl(tr, base) {
+      const parts = [rawOf(tr.stsd)];
+      const stts = runLen(tr.dur);
+      const nums = [0, stts.length];
+      stts.forEach(r => { nums.push(r[0], r[1]); });
+      parts.push(box('stts', u32arr(nums)));
+      if (tr.cts.some(v => v)) {
+        const ctts = runLen(tr.cts);
+        const neg = tr.cts.some(v => v < 0);
+        const cn = [neg ? 0x01000000 : 0, ctts.length];
+        ctts.forEach(r => { cn.push(r[0], r[1]); });
+        parts.push(box('ctts', u32arr(cn)));
+      }
+      if (tr.handler === 'vide') {
+        const sync = [];
+        tr.sync.forEach((s, i) => { if (s) sync.push(i + 1); });
+        if (sync.length && sync.length < tr.sync.length)
+          parts.push(box('stss', u32arr([0, sync.length].concat(sync))));
+      }
+      const stsc = [];
+      tr.chunks.forEach((c, i) => {
+        if (!stsc.length || stsc[stsc.length - 1][1] !== c.count) stsc.push([i + 1, c.count]);
+      });
+      const sn = [0, stsc.length];
+      stsc.forEach(r => { sn.push(r[0], r[1], 1); });
+      parts.push(box('stsc', u32arr(sn)));
+      parts.push(box('stsz', u32arr([0, 0, tr.size.length].concat(tr.size))));
+      parts.push(box('co64', cat(u32arr([0, tr.chunks.length]), u64arr(tr.chunks.map(c => base + c.dst)))));
+      return box.apply(null, ['stbl'].concat(parts));
+    }
+
+    // reconstroi a trilha: copia tudo do original, trocando so as
+    // tabelas de indice e as duracoes; a lista de edicao (edts) do
+    // arquivo fragmentado e descartada (nao vale mais)
+    function buildTrak(tr, base) {
+      const mediaDur = tr.dur.reduce((a, b) => a + b, 0);
+      const parts = [];
+      for (const kid of boxes(moovDv, tr.trak.body, tr.trak.start + tr.trak.size)) {
+        if (kid.type === 'tkhd') {
+          const b = rawOf(kid);
+          patchDur(b, moovDv.getUint8(kid.body), 28, 20, Math.round(mediaDur / tr.timescale * movieTs));
+          parts.push(b);
+        } else if (kid.type === 'edts') {
+          continue;
+        } else if (kid.type === 'mdia') {
+          const mparts = [];
+          for (const mk of boxes(moovDv, kid.body, kid.start + kid.size)) {
+            if (mk.type === 'mdhd') {
+              const b = rawOf(mk);
+              patchDur(b, moovDv.getUint8(mk.body), 24, 16, mediaDur);
+              mparts.push(b);
+            } else if (mk.type === 'minf') {
+              const iparts = [];
+              for (const ik of boxes(moovDv, mk.body, mk.start + mk.size)) {
+                iparts.push(ik.type === 'stbl' ? buildStbl(tr, base) : rawOf(ik));
+              }
+              mparts.push(box.apply(null, ['minf'].concat(iparts)));
+            } else mparts.push(rawOf(mk));
+          }
+          parts.push(box.apply(null, ['mdia'].concat(mparts)));
+        } else parts.push(rawOf(kid));
+      }
+      return box.apply(null, ['trak'].concat(parts));
+    }
+
+    function buildMoov(base) {
+      let maxDur = 0;
+      for (const t of liveTracks) maxDur = Math.max(maxDur, t.dur.reduce((a, b) => a + b, 0) / t.timescale);
+      const parts = [];
+      for (const kid of moovKids) {
+        if (kid.type === 'mvhd') {
+          const b = rawOf(kid);
+          patchDur(b, mvhdVer, 24, 16, Math.round(maxDur * movieTs));
+          parts.push(b);
+        } else if (kid.type === 'trak') {
+          const t = tracks.find(x => x.trak.start === kid.start);
+          if (t && t.size.length) parts.push(buildTrak(t, base));
+        } else if (kid.type === 'mvex') {
+          continue; // so faz sentido em MP4 fragmentado
+        } else parts.push(rawOf(kid));
+      }
+      return box.apply(null, ['moov'].concat(parts));
+    }
+
+    if (!ftypRaw) ftypRaw = box('ftyp', u32arr([0x69736f6d, 512, 0x69736f6d, 0x61766331, 0x6d703431])); // isom/avc1/mp41
+
+    // co64 tem largura fixa: monta uma vez pra medir, de novo com offsets reais
+    const probe = buildMoov(0);
+    const mdatHdrLen = (mdatPayload + 8 > 0xffffffff) ? 16 : 8;
+    const dataBase = ftypRaw.length + probe.length + mdatHdrLen;
+    const moovNew = buildMoov(dataBase);
+
+    let mdatHdr;
+    if (mdatHdrLen === 16) {
+      mdatHdr = new Uint8Array(16);
+      const d = new DataView(mdatHdr.buffer);
+      d.setUint32(0, 1);
+      mdatHdr.set([109, 100, 97, 116], 4); // 'mdat'
+      d.setUint32(8, Math.floor((mdatPayload + 16) / 4294967296));
+      d.setUint32(12, (mdatPayload + 16) >>> 0);
+    } else {
+      mdatHdr = new Uint8Array(8);
+      new DataView(mdatHdr.buffer).setUint32(0, mdatPayload + 8);
+      mdatHdr.set([109, 100, 97, 116], 4);
+    }
+
+    // o Blob final referencia fatias do original: nada e recodificado
+    const parts = [ftypRaw, moovNew, mdatHdr];
+    for (const c of allChunks) parts.push(blob.slice(c.src, c.src + c.bytes));
+    return new Blob(parts, { type: 'video/mp4' });
+  }
+
+  // baixa um video ja com o cabecalho consertado (se o conserto falhar
+  // por qualquer motivo, baixa o original mesmo - nunca trava o download)
+  async function downloadVideoBlob(blob, filename) {
+    let fixed = blob;
+    try { fixed = await fixMp4Blob(blob); } catch (e) { console.warn('fixMp4Blob falhou, baixando original', e); }
+    downloadBlob(fixed, filename);
+  }
+
   function downloadBlob(blob, filename) {
     if (!blob) return;
     const url = URL.createObjectURL(blob);
@@ -2647,9 +2985,9 @@
   }
 
   // -------------------------------------------------------------
-  // legendas SRT: uma legenda por frase, com os tempos EXATOS do
-  // video unico renderizado - importa direto no editor de video
-  // (Premiere / DaVinci / CapCut) e ja vira legenda sincronizada
+  // legendas SRT: uma legenda por frase, com os tempos EXATOS dos
+  // trechos colocados em sequencia na timeline - importa direto no
+  // editor (Premiere / DaVinci / CapCut) e ja vira legenda sincronizada
   // -------------------------------------------------------------
   // duracao de um Blob de video (workaround: webm do MediaRecorder as vezes
   // vem com duration=Infinity - forcar um seek gigante revela a duracao real)
@@ -2694,95 +3032,36 @@
     downloadBlob(new Blob([out.join('\n')], { type: 'text/plain;charset=utf-8' }), 'legendas.srt');
     btnSrt.disabled = false;
     btnSrt.textContent = prev;
-    statusText.textContent = 'Legendas .srt geradas (tempos do vídeo único)';
+    statusText.textContent = 'Legendas .srt geradas (trechos em sequência na timeline)';
   }
 
-  // junta todos os trechos num unico video: reproduz cada segmento num
-  // canvas + captura audio e regrava tudo como um so arquivo (tempo real)
-  async function downloadAllMerged() {
-    const segs = [];
-    for (let i = 0; i < roteiro.length; i++) if (recordings[i]) segs.push(recordings[i]);
-    if (!segs.length) return;
+  // baixa todos os trechos gravados como videos curtos separados
+  // (trecho-01, trecho-02...). nada e regravado: cada arquivo e a gravacao
+  // original com o cabecalho consertado - qualidade maxima e leve ate em
+  // PC fraco (o antigo "video unico" regravava tudo em tempo real e
+  // travava/corrompia em maquinas fracas ou com a aba minimizada)
+  async function downloadAllClips() {
+    const idxs = [];
+    for (let i = 0; i < roteiro.length; i++) if (recordings[i]) idxs.push(i);
+    if (!idxs.length) return;
     if (isListening) stopRecognition();
 
     btnDownloadAll.disabled = true;
     const prevLabel = btnDownloadAll.textContent;
-    btnDownloadAll.textContent = 'Gerando...';
-
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const vid = document.createElement('video');
-    vid.playsInline = true;
-
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
-    const dest = ac.createMediaStreamDestination();
-    const srcNode = ac.createMediaElementSource(vid);
-    srcNode.connect(dest); // audio vai pro gravador (nao pros alto-falantes)
-
-    let ready;
-    const done = new Promise(res => { ready = res; });
-
-    const canvasStream = canvas.captureStream(30);
-    let drawing = false;
-    function drawLoop() {
-      if (!drawing) return;
-      if (vid.readyState >= 2) ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-      requestAnimationFrame(drawLoop);
+    const pad = (n) => String(n).padStart(2, '0');
+    let n = 0;
+    for (const i of idxs) {
+      n++;
+      btnDownloadAll.textContent = 'Baixando ' + n + ' de ' + idxs.length + '…';
+      statusText.textContent = 'Baixando trecho ' + n + ' de ' + idxs.length + '…';
+      await downloadVideoBlob(recordings[i], 'trecho-' + pad(i + 1) + '.' + videoExt());
+      // respiro entre downloads pro navegador nao engolir nenhum da sequencia
+      await new Promise(r => setTimeout(r, 400));
     }
-
-    function startWhenSized(cb) {
-      if (vid.videoWidth) { canvas.width = vid.videoWidth; canvas.height = vid.videoHeight; cb(); }
-      else vid.addEventListener('loadedmetadata', () => {
-        canvas.width = vid.videoWidth; canvas.height = vid.videoHeight; cb();
-      }, { once: true });
-    }
-
-    let i = 0;
-    let rec = null;
-    const chunks = [];
-
-    function playNext() {
-      if (i >= segs.length) {
-        drawing = false;
-        if (rec && rec.state !== 'inactive') rec.stop();
-        return;
-      }
-      const blob = segs[i++];
-      vid.src = URL.createObjectURL(blob);
-      vid.onended = () => { URL.revokeObjectURL(vid.src); playNext(); };
-      vid.play().catch(() => {});
-    }
-
-    // usa o 1o segmento pra dimensionar o canvas e so entao comeca a gravar
-    const first = segs[0];
-    vid.src = URL.createObjectURL(first);
-    startWhenSized(() => {
-      const mixed = new MediaStream([
-        ...canvasStream.getVideoTracks(),
-        ...dest.stream.getAudioTracks()
-      ]);
-      rec = makeRecorder(mixed); // qualidade maxima tambem no video unico
-      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-      rec.onstop = () => {
-        const out = new Blob(chunks, { type: rec.mimeType || 'video/webm' });
-        downloadBlob(out, 'teleprompter-completo.' + videoExt());
-        mergedDownloaded = true; // pode fechar a aba sem aviso
-        ac.close();
-        btnDownloadAll.disabled = false;
-        btnDownloadAll.textContent = prevLabel;
-        statusText.textContent = "Vídeo único gerado!";
-        ready();
-      };
-      drawing = true; drawLoop();
-      ac.resume();
-      rec.start();
-      statusText.textContent = "Gerando vídeo único (aguarde, tempo real)...";
-      // ja temos o 1o segmento carregado: toca ele e encadeia os proximos
-      vid.onended = () => { URL.revokeObjectURL(vid.src); i = 1; playNext(); };
-      vid.play().catch(() => {});
-    });
-
-    await done;
+    mergedDownloaded = true; // tudo salvo: pode fechar a aba sem aviso
+    btnDownloadAll.disabled = false;
+    btnDownloadAll.textContent = prevLabel;
+    statusText.textContent = '✅ ' + idxs.length + ' trechos baixados! (importe em ordem no editor)';
   }
 
   // toca em sequencia todos os segmentos de VIDEO guardados, destacando a
@@ -3224,7 +3503,7 @@
   btnPlay.addEventListener('click', playRecordings);
   btnClips.addEventListener('click', openClips);
   btnClipsClose.addEventListener('click', closeClips);
-  btnDownloadAll.addEventListener('click', downloadAllMerged);
+  btnDownloadAll.addEventListener('click', downloadAllClips);
   // escolha de camera (topbar ou tela inicial): a opcao "celular" abre o QR
   function onCamChosen(val) {
     if (val === '__phone__') { openPhoneCamera(); return; }
