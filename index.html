@@ -627,6 +627,8 @@
     padding: 3px 9px; border-radius: 999px; align-self: flex-start;
   }
   .clip-status.ok { color: #33e07f; background: rgba(22,184,98,0.14); }
+  .clip-status.warn { color: #f1c40f; background: rgba(241,196,15,0.12); }
+  .clip-status.bad { color: #ff6b5b; background: rgba(231,76,60,0.16); }
   .clip-status.empty { color: var(--fg-inactive); background: rgba(255,255,255,0.04); }
 
   .clip-btns { display: flex; gap: 6px; margin-top: 2px; }
@@ -1052,7 +1054,7 @@
     <span id="clips-title">🎬 Revisão dos vídeos <span id="clips-count"></span></span>
     <div class="clips-actions">
       <button id="btn-srt" title="Legendas com os tempos dos trechos em sequência — importa direto no Premiere/DaVinci/CapCut">📝 Legendas (.srt)</button>
-      <button id="btn-download-all">⬇ Baixar todos os trechos</button>
+      <button id="btn-download-all" title="Cada trecho aprovado já baixa sozinho; este botão baixa TUDO de novo (versão final) + legendas">⬇ Baixar todos os trechos</button>
       <button id="btn-clips-close">✕ Fechar</button>
     </div>
   </div>
@@ -1369,6 +1371,11 @@
   let recordStream = null;    // MediaStream da camera+mic (separado do reconhecimento)
   let mediaRecorder = null;   // recorder do segmento (frase) atual
   const recordings = [];      // recordings[indiceDaFrase] = Blob de video
+  // seguranca: cada trecho APROVADO baixa sozinho pro computador na hora.
+  // se o PC travar/faltar luz, tudo que ja foi aprovado esta salvo em disco.
+  const savedIdx = new Set(); // indices ja baixados (auto ou manual)
+  const takeCount = {};       // idx -> numero do take (regravacao vira -take2)
+  const badClips = {};        // idx -> true se o video gravado veio com defeito
   // dispositivos escolhidos (persistem entre sessoes)
   let selectedCamId = localStorage.getItem('kineprompt_cam') || null;
   let selectedMicId = localStorage.getItem('kineprompt_mic') || null;
@@ -1628,7 +1635,7 @@
     lastScriptText = text;
     localStorage.setItem('kineprompt_script', text);
     roteiro = novo;
-    recordings.length = 0; poses.length = 0; updatePlayButton();
+    recordings.length = 0; poses.length = 0; resetClipSafety(); updatePlayButton();
     currentIndex = 0;
     awaitingReady = false;
     peekIndex = null;
@@ -2114,6 +2121,20 @@
         await track.applyConstraints({ frameRate: 30 }).catch(() => {});
       }
     } catch (e) {}
+    // vigia camera/mic: se desconectar ou parar de enviar sinal NO MEIO da
+    // gravacao, avisa na hora (em vez de gravar takes ruins em silencio)
+    try {
+      recordStream.getTracks().forEach((track) => {
+        const nome = track.kind === 'video' ? 'A CÂMERA' : 'O MICROFONE';
+        track.addEventListener('ended', () => {
+          showAlert('⚠ ' + nome + ' DESCONECTOU! Reconecte ou troque o dispositivo no ⚙ (clique para fechar)', true);
+        });
+        track.addEventListener('mute', () => {
+          if (isListening) showAlert('⚠ ' + nome.toLowerCase() + ' parou de enviar sinal — confira a conexão', false);
+        });
+        track.addEventListener('unmute', hideAlert);
+      });
+    } catch (e) {}
     try {
       reportCaptureInfo(); // mostra na tela a resolucao/formato REAIS
       initVuMeter();       // medidor de volume do mic
@@ -2397,12 +2418,13 @@
     return pickVideoMime().indexOf('video/mp4') === 0 ? 'mp4' : 'webm';
   }
 
-  // cria um MediaRecorder de QUALIDADE MAXIMA: 80 Mbps de video (o codec
-  // usa o quanto conseguir ate esse teto) + 256 kbps de audio. se o
-  // navegador recusar as opcoes, cai pro recorder padrao em vez de quebrar
+  // cria um MediaRecorder de alta qualidade: 25 Mbps de video (webcam
+  // 1080p30 fica visualmente identica a 80 Mbps, com arquivos 3x menores
+  // e MUITO menos esforco de encoder - PC fraco para de derrubar frames)
+  // + 256 kbps de audio. se o navegador recusar, cai pro recorder padrao
   function makeRecorder(stream) {
     const mime = pickVideoMime();
-    const opts = { videoBitsPerSecond: 80000000, audioBitsPerSecond: 256000 };
+    const opts = { videoBitsPerSecond: 25000000, audioBitsPerSecond: 256000 };
     if (mime) opts.mimeType = mime;
     try { return new MediaRecorder(stream, opts); }
     catch (e) {
@@ -2411,13 +2433,116 @@
     }
   }
 
+  // ---------------------------------------------------------------
+  // seguranca: alerta na tela + validacao do take + auto-download
+  // ---------------------------------------------------------------
+  let alertEl = null, alertTimer = null;
+  function showAlert(msg, sticky) {
+    if (!alertEl) {
+      alertEl = document.createElement('div');
+      alertEl.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9999;' +
+        'background:#c0392b;color:#fff;font-weight:700;font-size:16px;padding:12px 20px;border-radius:10px;' +
+        'box-shadow:0 6px 24px rgba(0,0,0,.5);max-width:90vw;text-align:center;display:none';
+      alertEl.onclick = hideAlert;
+      document.body.appendChild(alertEl);
+    }
+    alertEl.textContent = msg;
+    alertEl.style.display = 'block';
+    clearTimeout(alertTimer);
+    if (!sticky) alertTimer = setTimeout(hideAlert, 7000);
+  }
+  function hideAlert() { if (alertEl) alertEl.style.display = 'none'; }
+
+  // toast verde discreto (nao mexe no statusText, que reflete o estado da sessao)
+  let toastEl = null, toastTimer = null;
+  function showToast(msg) {
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:9999;' +
+        'background:#1e8e4e;color:#fff;font-weight:600;font-size:14px;padding:9px 16px;border-radius:999px;' +
+        'box-shadow:0 4px 16px rgba(0,0,0,.4);max-width:88vw;text-align:center;display:none';
+      document.body.appendChild(toastEl);
+    }
+    toastEl.textContent = msg;
+    toastEl.style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.style.display = 'none'; }, 3500);
+  }
+
+  // confere se o video gravado presta: tem imagem de verdade
+  function validateClip(blob) {
+    return new Promise((resolve) => {
+      if (!blob || !blob.size) { resolve(false); return; }
+      const v = document.createElement('video');
+      v.preload = 'metadata'; v.muted = true;
+      let settled = false;
+      const done = (ok) => {
+        if (settled) return; settled = true;
+        try { URL.revokeObjectURL(v.src); } catch (e) {}
+        resolve(ok);
+      };
+      const t = setTimeout(() => done(false), 8000);
+      v.onloadedmetadata = () => { clearTimeout(t); done(v.videoWidth > 0); };
+      v.onerror = () => { clearTimeout(t); done(false); };
+      v.src = URL.createObjectURL(blob);
+    });
+  }
+
+  // aviso de disco quase cheio (no maximo 1x a cada 2 minutos)
+  let lastDiskWarn = 0;
+  async function checkDisk() {
+    try {
+      if (!navigator.storage || !navigator.storage.estimate) return;
+      const est = await navigator.storage.estimate();
+      const free = (est.quota || 0) - (est.usage || 0);
+      if (free > 0 && free < 2e9 && Date.now() - lastDiskWarn > 120000) {
+        lastDiskWarn = Date.now();
+        showAlert('⚠ Espaço no computador quase no fim — libere espaço antes de gravar muito mais', false);
+      }
+    } catch (e) {}
+  }
+
+  function hasUnsavedClips() {
+    for (let i = 0; i < roteiro.length; i++) if (recordings[i] && !savedIdx.has(i)) return true;
+    return false;
+  }
+
+  function resetClipSafety() {
+    savedIdx.clear();
+    for (const k in takeCount) delete takeCount[k];
+    for (const k in badClips) delete badClips[k];
+  }
+
+  // trecho APROVADO: valida e ja baixa sozinho pro computador. regravacao
+  // vira trecho-NN-take2, take3... (o arquivo antigo fica como backup;
+  // vale sempre o take de numero maior)
+  async function autoSaveClip(idx, blob) {
+    const take = takeCount[idx] = (takeCount[idx] || 0) + 1;
+    const name = 'trecho-' + String(idx + 1).padStart(2, '0') +
+                 (take > 1 ? '-take' + take : '') + '.' + videoExt();
+    const ok = await validateClip(blob);
+    badClips[idx] = !ok;
+    if (!ok) {
+      showAlert('⚠ O vídeo da frase ' + (idx + 1) + ' saiu com defeito — REGRAVE essa frase! (clique para fechar)', true);
+      if (clipsPanel.classList.contains('visible')) renderClips();
+      return;
+    }
+    try {
+      await downloadVideoBlob(blob, name);
+      savedIdx.add(idx);
+      showToast('💾 Trecho ' + (idx + 1) + ' salvo no computador');
+    } catch (e) { console.warn('auto-save falhou', e); }
+    if (clipsPanel.classList.contains('visible')) renderClips();
+    checkDisk();
+  }
+
   // comeca a gravar (video) a frase atual do zero
   function startSegment() {
     // modo celular: o aparelho grava local (qualidade cheia); PC so comanda
     if (phoneRecMode) { sendPhone({ cmd: 'start', idx: currentIndex }); return; }
     if (!recordStream) return;
     const chunks = [];
-    const rec = makeRecorder(recordStream); // qualidade maxima (50 Mbps)
+    const rec = makeRecorder(recordStream); // alta qualidade (25 Mbps)
     rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     rec._chunks = chunks;
     mediaRecorder = rec;
@@ -2434,8 +2559,9 @@
     rec.onstop = () => {
       if (keep && rec._chunks.length) {
         recordings[index] = new Blob(rec._chunks, { type: rec.mimeType || 'video/webm' });
-        mergedDownloaded = false; // ha material novo ainda nao baixado
+        savedIdx.delete(index); // take novo ainda nao esta em disco
         updatePlayButton();
+        autoSaveClip(index, recordings[index]); // seguranca: baixa sozinho, em paralelo
       }
       if (onSaved) onSaved(); // video pronto (blob disponivel)
     };
@@ -2475,6 +2601,8 @@
   function removeClip(idx) {
     if (!recordings[idx]) return;
     recordings[idx] = undefined;
+    savedIdx.delete(idx);
+    delete badClips[idx];
     updatePlayButton();
     renderClips();
   }
@@ -2516,8 +2644,12 @@
       card.appendChild(txt);
 
       const st = document.createElement('div');
-      st.className = 'clip-status ' + (has ? 'ok' : 'empty');
-      st.textContent = has ? '● Gravado' : '○ Sem gravação';
+      let stCls = 'empty', stTxt = '○ Sem gravação';
+      if (has && badClips[idx]) { stCls = 'bad'; stTxt = '⚠ Com defeito — regrave'; }
+      else if (has && savedIdx.has(idx)) { stCls = 'ok'; stTxt = '✓ Gravado · salvo no PC'; }
+      else if (has) { stCls = 'warn'; stTxt = '● Gravado · salvando…'; }
+      st.className = 'clip-status ' + stCls;
+      st.textContent = stTxt;
       card.appendChild(st);
 
       const btns = document.createElement('div');
@@ -2591,9 +2723,8 @@
   // protecao: os videos so existem na memoria da aba - avisa antes
   // de fechar/recarregar se ainda nao foram baixados
   // -------------------------------------------------------------
-  let mergedDownloaded = false;
   window.addEventListener('beforeunload', (e) => {
-    if (hasAnyRecording() && !mergedDownloaded) {
+    if (hasUnsavedClips()) { // so avisa se ALGUM trecho gravado ainda nao foi salvo em disco
       e.preventDefault();
       e.returnValue = ''; // dispara o dialogo padrao do navegador
     }
@@ -2979,7 +3110,7 @@
     localStorage.setItem('kineprompt_script', text);
     lastScriptText = text;
     roteiro = novo;
-    recordings.length = 0; poses.length = 0; updatePlayButton();
+    recordings.length = 0; poses.length = 0; resetClipSafety(); updatePlayButton();
     currentIndex = 0; peekIndex = null; awaitingReady = false;
     readyPrompt.style.display = 'none';
     hideGhost();
@@ -3066,7 +3197,7 @@
     // legendas vao junto, automaticamente (tempos dos trechos em sequencia)
     btnDownloadAll.textContent = 'Gerando legendas…';
     try { await downloadSrt(); } catch (e) { console.warn('srt falhou', e); }
-    mergedDownloaded = true; // tudo salvo: pode fechar a aba sem aviso
+    idxs.forEach(i => savedIdx.add(i)); // tudo salvo: pode fechar a aba sem aviso
     btnDownloadAll.disabled = false;
     btnDownloadAll.textContent = prevLabel;
     statusText.textContent = '✅ ' + idxs.length + ' trechos + legendas baixados! (importe em ordem no editor)';
