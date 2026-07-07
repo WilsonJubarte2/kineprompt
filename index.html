@@ -3058,10 +3058,13 @@
       // respiro entre downloads pro navegador nao engolir nenhum da sequencia
       await new Promise(r => setTimeout(r, 400));
     }
+    // legendas vao junto, automaticamente (tempos dos trechos em sequencia)
+    btnDownloadAll.textContent = 'Gerando legendas…';
+    try { await downloadSrt(); } catch (e) { console.warn('srt falhou', e); }
     mergedDownloaded = true; // tudo salvo: pode fechar a aba sem aviso
     btnDownloadAll.disabled = false;
     btnDownloadAll.textContent = prevLabel;
-    statusText.textContent = '✅ ' + idxs.length + ' trechos baixados! (importe em ordem no editor)';
+    statusText.textContent = '✅ ' + idxs.length + ' trechos + legendas baixados! (importe em ordem no editor)';
   }
 
   // toca em sequencia todos os segmentos de VIDEO guardados, destacando a
