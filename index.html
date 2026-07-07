@@ -935,6 +935,14 @@
       </div>
     </div>
 
+    <div id="setup-dir-block" hidden>
+      <div class="setup-step-label"><span class="num">4</span> Onde salvar os vídeos</div>
+      <div style="display:flex;align-items:center;gap:10px;margin:4px 0 6px;flex-wrap:wrap">
+        <button id="setup-dir-btn" style="background:#1f1f24;color:#fff;border:1px solid #3a3a44;border-radius:8px;padding:9px 14px;font-size:14px;cursor:pointer">📁 Escolher pasta</button>
+        <span id="setup-dir-name" style="opacity:.75;font-size:13px">nenhuma — os vídeos caem na pasta Downloads</span>
+      </div>
+    </div>
+
     <div class="setup-footer">
       <button id="setup-reset">Restaurar atalhos padrão</button>
       <button id="setup-start">Começar a gravar →</button>
@@ -1673,6 +1681,7 @@
   // tela de revisao (ver 1 a 1, remover, regravar, baixar tudo)
   function finishAndReview() {
     isListening = false; // impede o startSegment do callback de confirmReady
+    releaseWakeLock();
     if (speechMode && recognition) { try { recognition.stop(); } catch (e) {} }
     if (phoneRecMode) sendPhone({ cmd: 'finish' });
     awaitingReady = false;
@@ -2368,6 +2377,8 @@
     } catch (e) { vuAnalyser = null; }
   }
 
+  // nivel de audio do take em andamento (pra detectar take mudo)
+  let takeMaxRms = 0, takeRmsSamples = 0;
   setInterval(() => {
     if (!vuAnalyser) { vuFill.style.width = '0%'; return; }
     vuAnalyser.getByteTimeDomainData(vuData);
@@ -2375,6 +2386,10 @@
     for (let i = 0; i < vuData.length; i++) { const d = (vuData[i] - 128) / 128; sum += d * d; }
     const rms = Math.sqrt(sum / vuData.length);
     vuFill.style.width = Math.min(100, Math.round(rms * 300)) + '%';
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      takeRmsSamples++;
+      if (rms > takeMaxRms) takeMaxRms = rms;
+    }
   }, 100);
 
   function stopRecordStream() {
@@ -2436,6 +2451,49 @@
   // ---------------------------------------------------------------
   // seguranca: alerta na tela + validacao do take + auto-download
   // ---------------------------------------------------------------
+  // pasta de destino (File System Access): quando escolhida, os videos sao
+  // ESCRITOS direto nela com confirmacao real de gravacao em disco - sem
+  // depender do fluxo de download (que pode ser bloqueado sem aviso).
+  // Chrome/Edge; sem suporte ou sem pasta escolhida, cai no download comum.
+  let saveDirHandle = null;
+  let fsDeclined = false; // pessoa cancelou o seletor: nao insistir de novo
+  const fsSupported = typeof window.showDirectoryPicker === 'function';
+
+  async function pickSaveDir() {
+    if (!fsSupported) return false;
+    try {
+      saveDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      fsDeclined = false;
+      updateDirLabel();
+      showToast('📁 Vídeos serão salvos direto em: ' + saveDirHandle.name);
+      return true;
+    } catch (e) { fsDeclined = true; return false; } // cancelou o seletor
+  }
+
+  function updateDirLabel() {
+    const el = document.getElementById('setup-dir-name');
+    if (el) el.textContent = saveDirHandle
+      ? '📁 ' + saveDirHandle.name
+      : 'nenhuma — os vídeos caem na pasta Downloads';
+  }
+
+  // escreve um blob na pasta escolhida; true = gravacao CONFIRMADA em disco
+  async function writeToDir(blob, filename) {
+    if (!saveDirHandle) return false;
+    try {
+      const fh = await saveDirHandle.getFileHandle(filename, { create: true });
+      const w = await fh.createWritable();
+      await w.write(blob);
+      await w.close();
+      return true;
+    } catch (e) {
+      console.warn('escrita na pasta falhou, caindo pro download', e);
+      showAlert('⚠ Não consegui salvar na pasta escolhida — usando a pasta Downloads', false);
+      saveDirHandle = null;
+      updateDirLabel();
+      return false;
+    }
+  }
   let alertEl = null, alertTimer = null;
   function showAlert(msg, sticky) {
     if (!alertEl) {
@@ -2516,7 +2574,7 @@
   // trecho APROVADO: valida e ja baixa sozinho pro computador. regravacao
   // vira trecho-NN-take2, take3... (o arquivo antigo fica como backup;
   // vale sempre o take de numero maior)
-  async function autoSaveClip(idx, blob) {
+  async function autoSaveClip(idx, blob, audioStat) {
     const take = takeCount[idx] = (takeCount[idx] || 0) + 1;
     const name = 'trecho-' + String(idx + 1).padStart(2, '0') +
                  (take > 1 ? '-take' + take : '') + '.' + videoExt();
@@ -2527,10 +2585,15 @@
       if (clipsPanel.classList.contains('visible')) renderClips();
       return;
     }
+    // take com pelo menos ~1s medido e nivel maximo ~zero = microfone mudo
+    if (audioStat && audioStat.samples >= 10 && audioStat.rms < 0.01) {
+      showAlert('⚠ A frase ' + (idx + 1) + ' ficou SEM ÁUDIO — microfone no mudo? Confira e regrave! (clique para fechar)', true);
+    }
     try {
-      await downloadVideoBlob(blob, name);
+      const via = await saveVideoBlob(blob, name);
       savedIdx.add(idx);
-      showToast('💾 Trecho ' + (idx + 1) + ' salvo no computador');
+      showToast('💾 Trecho ' + (idx + 1) + ' salvo ' +
+        (via === 'pasta' ? 'na pasta ' + (saveDirHandle ? saveDirHandle.name : '') : 'no computador'));
     } catch (e) { console.warn('auto-save falhou', e); }
     if (clipsPanel.classList.contains('visible')) renderClips();
     checkDisk();
@@ -2541,6 +2604,7 @@
     // modo celular: o aparelho grava local (qualidade cheia); PC so comanda
     if (phoneRecMode) { sendPhone({ cmd: 'start', idx: currentIndex }); return; }
     if (!recordStream) return;
+    takeMaxRms = 0; takeRmsSamples = 0; // zera o medidor de audio do take
     const chunks = [];
     const rec = makeRecorder(recordStream); // alta qualidade (25 Mbps)
     rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
@@ -2556,12 +2620,13 @@
     const rec = mediaRecorder;
     mediaRecorder = null;
     if (!rec || rec.state === 'inactive') { if (onSaved) onSaved(); return; }
+    const audioStat = { rms: takeMaxRms, samples: takeRmsSamples }; // captura antes do proximo take zerar
     rec.onstop = () => {
       if (keep && rec._chunks.length) {
         recordings[index] = new Blob(rec._chunks, { type: rec.mimeType || 'video/webm' });
         savedIdx.delete(index); // take novo ainda nao esta em disco
         updatePlayButton();
-        autoSaveClip(index, recordings[index]); // seguranca: baixa sozinho, em paralelo
+        autoSaveClip(index, recordings[index], audioStat); // seguranca: salva sozinho, em paralelo
       }
       if (onSaved) onSaved(); // video pronto (blob disponivel)
     };
@@ -3080,6 +3145,16 @@
     downloadBlob(fixed, filename);
   }
 
+  // salva um video pelo melhor caminho: pasta escolhida (escrita confirmada)
+  // ou, sem pasta, o download comum do navegador
+  async function saveVideoBlob(blob, filename) {
+    let fixed = blob;
+    try { fixed = await fixMp4Blob(blob); } catch (e) { console.warn('fixMp4Blob falhou, salvando original', e); }
+    if (await writeToDir(fixed, filename)) return 'pasta';
+    downloadBlob(fixed, filename);
+    return 'download';
+  }
+
   function downloadBlob(blob, filename) {
     if (!blob) return;
     const url = URL.createObjectURL(blob);
@@ -3165,7 +3240,8 @@
       out.push(n++ + '\n' + srtTime(t) + ' --> ' + srtTime(t + d) + '\n' + roteiro[i].text + '\n');
       t += d;
     }
-    downloadBlob(new Blob([out.join('\n')], { type: 'text/plain;charset=utf-8' }), 'legendas.srt');
+    const srtBlob = new Blob([out.join('\n')], { type: 'text/plain;charset=utf-8' });
+    if (!(await writeToDir(srtBlob, 'legendas.srt'))) downloadBlob(srtBlob, 'legendas.srt');
     btnSrt.disabled = false;
     btnSrt.textContent = prev;
     statusText.textContent = 'Legendas .srt geradas (trechos em sequência na timeline)';
@@ -3190,9 +3266,9 @@
       n++;
       btnDownloadAll.textContent = 'Baixando ' + n + ' de ' + idxs.length + '…';
       statusText.textContent = 'Baixando trecho ' + n + ' de ' + idxs.length + '…';
-      await downloadVideoBlob(recordings[i], 'trecho-' + pad(i + 1) + '.' + videoExt());
+      const via = await saveVideoBlob(recordings[i], 'trecho-' + pad(i + 1) + '.' + videoExt());
       // respiro entre downloads pro navegador nao engolir nenhum da sequencia
-      await new Promise(r => setTimeout(r, 400));
+      if (via === 'download') await new Promise(r => setTimeout(r, 400));
     }
     // legendas vao junto, automaticamente (tempos dos trechos em sequencia)
     btnDownloadAll.textContent = 'Gerando legendas…';
@@ -3569,6 +3645,7 @@
 
   function stopRecognition() {
     isListening = false;
+    releaseWakeLock(); // parou: tela pode voltar a apagar sozinha
     if (speechMode && recognition) recognition.stop();
     finalizeSegment(currentIndex, false); // trecho incompleto e descartado
     awaitingReady = false;
@@ -3610,9 +3687,28 @@
     }, 1000);
   }
 
+  // tela nao apaga durante a gravacao (notebook com economia de energia)
+  let wakeLock = null;
+  async function acquireWakeLock() {
+    try {
+      if (navigator.wakeLock && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      }
+    } catch (e) {}
+  }
+  function releaseWakeLock() {
+    try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {}
+  }
+  // o navegador solta o lock quando a aba sai de foco: readquire ao voltar
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && isListening) acquireWakeLock();
+  });
+
   // contagem 3,2,1 ao iniciar a leitura, so entao comeca a gravar/ouvir
   function beginWithCountdown() {
     if (isListening || activeCountdown) return;
+    acquireWakeLock(); // dentro do gesto: tela fica acesa ate parar
     getAudioCtx(); // desbloqueia audio dentro do gesto de clique
     showReadView();   // aplica o texto editado e mostra o teleprompter
     playerEl.style.display = 'none';
@@ -3868,7 +3964,16 @@
     renderSetup();
   });
 
+  // pasta de destino: mostra o bloco so em navegador com suporte
+  const setupDirBlock = document.getElementById('setup-dir-block');
+  const setupDirBtn = document.getElementById('setup-dir-btn');
+  if (fsSupported && setupDirBlock) setupDirBlock.hidden = false;
+  if (setupDirBtn) setupDirBtn.addEventListener('click', pickSaveDir);
+
   setupStartBtn.addEventListener('click', () => {
+    // sem pasta escolhida ainda: oferece o seletor UMA vez (dentro do clique,
+    // que e o gesto exigido pela API). cancelou = segue com download comum
+    if (fsSupported && !saveDirHandle && !fsDeclined) pickSaveDir();
     keybindings = Object.assign({}, pendingKeys);
     speechMode = (pendingMode === 'voice') && !!SpeechRecognition;
     saveKeybindings();
@@ -3913,6 +4018,28 @@
     else if (code === 'ArrowLeft') { e.preventDefault(); manualPrev(); }      // extra: frase anterior (se ← estiver livre)
     else if (code === 'Escape') { cancelCurrentTake(); }                       // extra: cancelar take
   });
+
+  // ---------------------------------------------------------------
+  // versao do app: compara com a publicada no servidor; se saiu versao
+  // nova, mostra uma barra discreta pedindo pra recarregar (o cache do
+  // navegador costuma segurar a versao antiga)
+  // ---------------------------------------------------------------
+  const APP_VERSION = '2026-07-07.2';
+  setTimeout(async () => {
+    try {
+      const r = await fetch(location.pathname + '?nocache=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const t = await r.text();
+      const m = t.match(/APP_VERSION = '([^']+)'/);
+      if (!m || m[1] === APP_VERSION) return;
+      const bar = document.createElement('div');
+      bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9998;background:#1a6dd0;' +
+        'color:#fff;font-size:14px;font-weight:600;text-align:center;padding:10px;cursor:pointer';
+      bar.textContent = '🔄 Versão nova do KinePrompt disponível — clique aqui para atualizar (salve a gravação antes)';
+      bar.onclick = () => location.reload();
+      document.body.appendChild(bar);
+    } catch (e) {}
+  }, 4000);
 
   // ---------------------------------------------------------------
   // 5. Init
