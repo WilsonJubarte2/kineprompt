@@ -26,6 +26,17 @@ os blocos pela pontuação sob demanda. Roteiros antigos (chave
 `kineprompt_script`) são migrados uma única vez com a quebra por pontuação
 para a chave nova `kineprompt_script_v2`.
 
+**Memória leve (IndexedDB):** vídeo aprovado é salvo (pasta/download) e em
+seguida SAI da RAM — vai pro IndexedDB (`kineprompt-clips`) e
+`recordings[idx]` vira o marcador `{inDb:true}`. Replay, carrossel, "baixar
+todos" e .srt releem do disco via `getClipBlob(idx)` só na hora de usar. Sem
+IndexedDB (modo anônimo), o blob continua na RAM como antes. O store é limpo
+no init (vídeos de sessões passadas já foram baixados) e ao trocar o roteiro.
+
+**Toolbar:** funções secundárias (posição do vídeo, câmera/celular,
+exportar/importar/dividir roteiro) agrupadas no menu ☰ único; na barra ficam
+só status, navegação de frases e Iniciar.
+
 ---
 
 ## 2. Interface (UI/UX)
