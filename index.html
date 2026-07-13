@@ -246,6 +246,46 @@
     height: auto; width: 42vw; max-width: 42vw; max-height: 82vh;
   }
 
+  /* ===== MODO EDIÇÃO: câmera vira janelinha flutuante no canto e o
+     texto ocupa a tela inteira (clique na janelinha pra ampliar) ===== */
+  body.editing #stage > #camera-band {
+    position: fixed;
+    right: 18px; bottom: 18px;
+    height: auto; align-self: auto;
+    padding: 0;
+    z-index: 40;
+  }
+  body.editing #stage #camera-frame { margin: 0; }
+  body.editing #stage #preview {
+    height: 15vh; width: auto; max-width: 32vw; max-height: none;
+    border-color: var(--line-2);
+    box-shadow: 0 10px 28px rgba(0,0,0,0.6);
+    opacity: 0.92;
+    cursor: pointer;
+    transition: height .25s, opacity .15s;
+  }
+  body.editing #stage #preview:hover { opacity: 1; }
+  /* clique: alterna janelinha <-> tamanho grande (conferir enquadramento) */
+  body.editing.cam-big #stage #preview { height: 42vh; max-width: 64vw; }
+  /* dica sutil na janelinha */
+  body.editing #stage #camera-frame::after {
+    content: '🔍 clique pra ampliar';
+    position: absolute;
+    left: 50%; bottom: 6px;
+    transform: translateX(-50%);
+    font-size: 10px; line-height: 1.4;
+    color: #cfcfda;
+    background: rgba(0,0,0,0.55);
+    padding: 1px 8px; border-radius: 999px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .15s;
+    z-index: 3;
+    white-space: nowrap;
+  }
+  body.editing #stage #camera-frame:hover::after { opacity: 1; }
+  body.editing.cam-big #stage #camera-frame::after { content: '🔍 clique pra reduzir'; }
+
   #script-container {
     flex: 1 1 auto;
     min-height: 0;
@@ -1728,12 +1768,15 @@
     });
     scriptEdit.style.display = 'block';
     scriptList.style.display = 'none';
+    // modo edicao: camera vira janelinha no canto, texto ocupa a tela
+    document.body.classList.add('editing');
   }
 
   // mostra o teleprompter renderizado (estado lendo)
   function showReadView() {
     commitEditor();          // garante que o texto digitado virou roteiro
     scriptEdit.style.display = 'none';
+    document.body.classList.remove('editing', 'cam-big');
     scriptList.style.display = 'block';
     renderScript();
     scrollToActive();
@@ -2947,6 +2990,7 @@
     readyPrompt.style.display = 'none';
     currentIndex = Math.max(0, Math.min(roteiro.length - 1, idx));
     scriptEdit.style.display = 'none';
+    document.body.classList.remove('editing', 'cam-big');
     scriptList.style.display = 'block';
     renderScript();
     scrollToActive();
@@ -3482,6 +3526,7 @@
     if (isListening) stopRecognition();
 
     scriptEdit.style.display = 'none';
+    document.body.classList.remove('editing', 'cam-big');
     scriptList.style.display = 'block';
     playerEl.style.display = 'block';
     previewEl.style.display = 'none';
@@ -3989,6 +4034,13 @@
     importFile.value = ''; // permite importar o mesmo arquivo de novo
   });
   phoneCloseBtn.addEventListener('click', closePhoneModal);
+  // modo edicao: clique na janelinha da camera alterna pequena <-> grande
+  previewEl.addEventListener('click', () => {
+    if (document.body.classList.contains('editing')) {
+      document.body.classList.toggle('cam-big');
+    }
+  });
+
   // editor inline: ao sair do foco, aplica o texto digitado
   scriptEdit.addEventListener('blur', commitEditor);
   // se ficou vazio, limpa o HTML pra frase-guia ("Clique e digite...") voltar
