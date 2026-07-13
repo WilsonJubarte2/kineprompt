@@ -242,6 +242,37 @@
     content: 'Clique e digite o seu roteiro aqui…';
     color: var(--fg-inactive);
   }
+  /* cada bloco (linha) = uma frase = um trecho de video. Enter cria bloco novo */
+  #script-edit { counter-reset: blk; }
+  #script-edit > div {
+    counter-increment: blk;
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 22px;
+    margin: 20px auto 0;
+    max-width: 900px;
+    transition: border-color .2s, background .2s;
+  }
+  #script-edit > div.caret {
+    border-color: var(--brand);
+    background: var(--panel-2);
+  }
+  #script-edit > div::before {
+    content: 'frase ' counter(blk);
+    position: absolute;
+    top: -9px; left: 16px;
+    font-size: 11px; font-weight: 600;
+    letter-spacing: .5px;
+    color: var(--fg-dim);
+    background: var(--bg);
+    padding: 0 8px;
+    border-radius: 999px;
+    pointer-events: none;
+    user-select: none;
+  }
+  #script-edit > div.caret::before { color: var(--brand-2); }
 
   .sentence {
     font-size: 28px;
@@ -983,6 +1014,7 @@
     <span class="tb-sep"></span>
     <button id="btn-export" class="tb-btn icon" title="Baixar o roteiro (.txt)">⬇</button>
     <button id="btn-import" class="tb-btn icon" title="Carregar roteiro de um arquivo (.txt)">⬆</button>
+    <button id="btn-split" class="tb-btn icon" title="Dividir os blocos pela pontuação (. ! ?) — cada frase vira um bloco">✂</button>
     <input id="import-file" type="file" accept=".txt,text/plain" hidden>
   </div>
 
@@ -1272,10 +1304,22 @@
     "É essencial entender o contexto antes de tomar decisões.",
     "Agora que entendemos isso, vamos para o próximo passo.",
     "Muito obrigado por assistir, até o próximo vídeo!"
-  ].join(' ');
+  ].join('\n');
 
-  // quebra um texto livre em frases curtas (por linha e por pontuacao . ! ?)
+  // 1 bloco = 1 linha = 1 frase = 1 trecho de video. quem separa as frases
+  // e o Enter do usuario, nao a pontuacao (ponto final no meio do bloco fica)
   function splitScript(text) {
+    const out = [];
+    text.split(/\n+/).forEach(line => {
+      line = line.trim();
+      if (line) out.push(line);
+    });
+    return out.map((t, i) => ({ id: i + 1, text: t }));
+  }
+
+  // divide pela pontuacao (. ! ?) - usado so na migracao de roteiros antigos
+  // e no botao "dividir" (a quebra automatica por pontuacao acabou)
+  function splitByPunctuation(text) {
     const out = [];
     text.split(/\n+/).forEach(line => {
       line = line.trim();
@@ -1283,11 +1327,20 @@
       const sentences = line.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [line];
       sentences.forEach(s => { s = s.trim(); if (s) out.push(s); });
     });
-    return out.map((t, i) => ({ id: i + 1, text: t }));
+    return out;
   }
 
+  // migracao: roteiros salvos antes dos blocos eram quebrados por pontuacao;
+  // aplica essa quebra uma unica vez e salva ja no formato de blocos (1/linha)
+  const SCRIPT_KEY = 'kineprompt_script_v2';
+  (function migrateScript() {
+    if (localStorage.getItem(SCRIPT_KEY) !== null) return;
+    const old = localStorage.getItem('kineprompt_script');
+    if (old) localStorage.setItem(SCRIPT_KEY, splitByPunctuation(old).join('\n'));
+  })();
+
   // carrega o roteiro salvo (localStorage) ou usa o texto padrao
-  let roteiro = splitScript(localStorage.getItem('kineprompt_script') || DEFAULT_TEXT);
+  let roteiro = splitScript(localStorage.getItem(SCRIPT_KEY) || DEFAULT_TEXT);
 
   // ---------------------------------------------------------------
   // modo de operacao (com/sem reconhecimento de fala) + atalhos
@@ -1446,6 +1499,7 @@
   const vuFill = document.getElementById('vu-fill');
   const btnExport = document.getElementById('btn-export');
   const btnImport = document.getElementById('btn-import');
+  const btnSplit = document.getElementById('btn-split');
   const importFile = document.getElementById('import-file');
   const btnSrt = document.getElementById('btn-srt');
   const setupPhoneBtn = document.getElementById('setup-phone-btn');
@@ -1618,9 +1672,15 @@
   // ---------------------------------------------------------------
   let lastScriptText = roteiro.map(f => f.text).join('\n');
 
-  // mostra o editor inline (estado parado): digite direto no texto
+  // mostra o editor inline (estado parado): um bloco (div) por frase.
+  // Enter dentro do editor cria um bloco novo; cada bloco vira um trecho
   function showEditor() {
-    scriptEdit.textContent = roteiro.map(f => f.text).join('\n');
+    scriptEdit.innerHTML = '';
+    roteiro.forEach(f => {
+      const div = document.createElement('div');
+      div.textContent = f.text;
+      scriptEdit.appendChild(div);
+    });
     scriptEdit.style.display = 'block';
     scriptList.style.display = 'none';
   }
@@ -1641,7 +1701,7 @@
     const novo = splitScript(text);
     if (!novo.length) return;
     lastScriptText = text;
-    localStorage.setItem('kineprompt_script', text);
+    localStorage.setItem(SCRIPT_KEY, text);
     roteiro = novo;
     recordings.length = 0; poses.length = 0; resetClipSafety(); updatePlayButton();
     currentIndex = 0;
@@ -3182,7 +3242,7 @@
     const novo = splitScript(text);
     if (!novo.length) return;
     if (isListening) stopRecognition();
-    localStorage.setItem('kineprompt_script', text);
+    localStorage.setItem(SCRIPT_KEY, text);
     lastScriptText = text;
     roteiro = novo;
     recordings.length = 0; poses.length = 0; resetClipSafety(); updatePlayButton();
@@ -3753,6 +3813,19 @@
   btnSrt.addEventListener('click', downloadSrt);
   btnExport.addEventListener('click', exportScript);
   btnImport.addEventListener('click', () => importFile.click());
+  // divide os blocos pela pontuacao SOB DEMANDA (a quebra automatica acabou)
+  btnSplit.addEventListener('click', () => {
+    commitEditor(); // garante que o que esta no editor virou roteiro
+    const atual = roteiro.map(f => f.text).join('\n');
+    const novo = splitByPunctuation(atual).join('\n');
+    if (novo === atual) {
+      statusText.textContent = 'Nada pra dividir: cada bloco já é uma frase única.';
+      return;
+    }
+    const antes = roteiro.length;
+    importScriptText(novo);
+    statusText.textContent = 'Pronto! ' + antes + ' bloco(s) viraram ' + roteiro.length + ' frases.';
+  });
   importFile.addEventListener('change', () => {
     const f = importFile.files && importFile.files[0];
     if (!f) return;
@@ -3764,6 +3837,39 @@
   phoneCloseBtn.addEventListener('click', closePhoneModal);
   // editor inline: ao sair do foco, aplica o texto digitado
   scriptEdit.addEventListener('blur', commitEditor);
+  // se ficou vazio, limpa o HTML pra frase-guia ("Clique e digite...") voltar
+  scriptEdit.addEventListener('blur', () => {
+    if (!scriptEdit.textContent.trim()) scriptEdit.innerHTML = '';
+  });
+  // Enter deve criar um <div> novo (= bloco novo), nao um <br>
+  try { document.execCommand('defaultParagraphSeparator', false, 'div'); } catch (e) {}
+  // colar vira sempre texto puro (sem negrito/cor do Word ou site);
+  // cada quebra de linha do texto colado vira um bloco separado
+  scriptEdit.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData)
+      .getData('text/plain').replace(/\r/g, '');
+    document.execCommand('insertText', false, text);
+  });
+  // editor vazio: ao focar, ja cria o 1o bloco pro usuario digitar dentro
+  scriptEdit.addEventListener('focus', () => {
+    if (scriptEdit.firstElementChild || scriptEdit.textContent.trim()) return;
+    scriptEdit.innerHTML = '<div><br></div>';
+    const r = document.createRange();
+    r.selectNodeContents(scriptEdit.firstChild);
+    r.collapse(true);
+    const s = window.getSelection();
+    s.removeAllRanges(); s.addRange(r);
+  });
+  // destaca o bloco onde o cursor esta (feedback de qual frase esta editando)
+  document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    let node = sel && sel.anchorNode;
+    while (node && node.parentNode !== scriptEdit) node = node.parentNode;
+    scriptEdit.querySelectorAll(':scope > div.caret')
+      .forEach(d => d.classList.remove('caret'));
+    if (node && node.nodeType === 1) node.classList.add('caret');
+  });
   // seletor de layout
   layoutControl.addEventListener('click', (e) => {
     const b = e.target.closest('.lay-btn');

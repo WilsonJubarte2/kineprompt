@@ -19,6 +19,13 @@ const roteiro = [
 
 Cada frase é curta (uma sentença), não um bloco de texto único.
 
+**Divisão do roteiro (v2):** 1 bloco = 1 linha = 1 frase. Quem separa as
+frases é o Enter do usuário no editor (cada linha vira um bloco visual);
+pontuação `.!?` NÃO quebra mais automaticamente. O botão ✂ da toolbar divide
+os blocos pela pontuação sob demanda. Roteiros antigos (chave
+`kineprompt_script`) são migrados uma única vez com a quebra por pontuação
+para a chave nova `kineprompt_script_v2`.
+
 ---
 
 ## 2. Interface (UI/UX)
