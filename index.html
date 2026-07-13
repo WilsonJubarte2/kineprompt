@@ -113,6 +113,33 @@
     padding: 8px 10px; font-size: 12.5px; max-width: 170px; cursor: pointer;
   }
 
+  /* ===== menu de ferramentas (agrupa camera / layout / roteiro) ===== */
+  #tools-wrap { position: relative; }
+  #btn-tools.open { background: #23232c; border-color: var(--brand); }
+  #tools-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 250px;
+    padding: 6px 14px 14px;
+    background: var(--panel);
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 34px rgba(0,0,0,0.55);
+    z-index: 60;
+  }
+  #tools-menu.open { display: block; }
+  .tm-section { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; }
+  .tm-section + .tm-section { margin-top: 10px; border-top: 1px solid var(--line); }
+  .tm-title {
+    font-size: 11px; font-weight: 700; letter-spacing: .6px;
+    text-transform: uppercase; color: var(--fg-dim);
+  }
+  #tools-menu .tb-btn { justify-content: flex-start; width: 100%; }
+  #tools-menu #cam-select { max-width: none; width: 100%; }
+
   /* seletor de posicao do video (segmented control) */
   #layout-control {
     display: inline-flex; padding: 3px; gap: 2px;
@@ -1001,21 +1028,34 @@
     </div>
   </div>
 
+  <!-- funcoes secundarias agrupadas num menu so (toolbar limpa) -->
   <div class="tb-group">
-    <div id="layout-control" title="Posição do vídeo">
-      <button class="lay-btn" data-layout="top" title="Vídeo em cima">⬆</button>
-      <button class="lay-btn" data-layout="left" title="Vídeo à esquerda">⬅</button>
-      <button class="lay-btn" data-layout="right" title="Vídeo à direita">➡</button>
-      <button class="lay-btn" data-layout="bottom" title="Vídeo embaixo">⬇</button>
+    <div id="tools-wrap">
+      <button id="btn-tools" class="tb-btn" title="Câmera, posição do vídeo e roteiro">☰ Menu</button>
+      <div id="tools-menu">
+        <div class="tm-section">
+          <div class="tm-title">Posição do vídeo</div>
+          <div id="layout-control" title="Posição do vídeo">
+            <button class="lay-btn" data-layout="top" title="Vídeo em cima">⬆</button>
+            <button class="lay-btn" data-layout="left" title="Vídeo à esquerda">⬅</button>
+            <button class="lay-btn" data-layout="right" title="Vídeo à direita">➡</button>
+            <button class="lay-btn" data-layout="bottom" title="Vídeo embaixo">⬇</button>
+          </div>
+        </div>
+        <div class="tm-section">
+          <div class="tm-title">Câmera</div>
+          <select id="cam-select" title="Fonte de câmera (webcam ou celular)"></select>
+          <button id="btn-phone" class="tb-btn" title="Usar a câmera do celular (QR)">📱 Usar o celular</button>
+        </div>
+        <div class="tm-section">
+          <div class="tm-title">Roteiro</div>
+          <button id="btn-export" class="tb-btn" title="Baixar o roteiro num arquivo .txt">⬇ Baixar roteiro (.txt)</button>
+          <button id="btn-import" class="tb-btn" title="Carregar roteiro de um arquivo .txt">⬆ Carregar roteiro (.txt)</button>
+          <button id="btn-split" class="tb-btn" title="Cada frase (. ! ?) vira um bloco separado">✂ Dividir pela pontuação</button>
+          <input id="import-file" type="file" accept=".txt,text/plain" hidden>
+        </div>
+      </div>
     </div>
-    <span class="tb-sep"></span>
-    <select id="cam-select" title="Fonte de câmera (webcam ou celular)"></select>
-    <button id="btn-phone" class="tb-btn" title="Usar a câmera do celular (QR)">📱 Celular</button>
-    <span class="tb-sep"></span>
-    <button id="btn-export" class="tb-btn icon" title="Baixar o roteiro (.txt)">⬇</button>
-    <button id="btn-import" class="tb-btn icon" title="Carregar roteiro de um arquivo (.txt)">⬆</button>
-    <button id="btn-split" class="tb-btn icon" title="Dividir os blocos pela pontuação (. ! ?) — cada frase vira um bloco">✂</button>
-    <input id="import-file" type="file" accept=".txt,text/plain" hidden>
   </div>
 
   <!-- HUD de atalhos integrado no header (nao tapa a leitura) -->
@@ -1431,7 +1471,8 @@
   // no fim, os segmentos guardados tocam em sequencia (playback tipo transcricao).
   let recordStream = null;    // MediaStream da camera+mic (separado do reconhecimento)
   let mediaRecorder = null;   // recorder do segmento (frase) atual
-  const recordings = [];      // recordings[indiceDaFrase] = Blob de video
+  const recordings = [];      // recordings[indiceDaFrase] = Blob de video (ou
+                              // marcador {inDb:true} depois que foi pro disco)
   // seguranca: cada trecho APROVADO baixa sozinho pro computador na hora.
   // se o PC travar/faltar luz, tudo que ja foi aprovado esta salvo em disco.
   const savedIdx = new Set(); // indices ja baixados (auto ou manual)
@@ -1703,7 +1744,7 @@
     lastScriptText = text;
     localStorage.setItem(SCRIPT_KEY, text);
     roteiro = novo;
-    recordings.length = 0; poses.length = 0; resetClipSafety(); updatePlayButton();
+    recordings.length = 0; poses.length = 0; idbClearClips(); resetClipSafety(); updatePlayButton();
     currentIndex = 0;
     awaitingReady = false;
     peekIndex = null;
@@ -1931,8 +1972,8 @@
 
   // toca o replay do trecho recem-gravado sem sair do estado de espera.
   // limpa a memoria de fala no inicio e no fim (mesmo motivo da previa)
-  function replayCurrent() {
-    const blob = recordings[currentIndex];
+  async function replayCurrent() {
+    const blob = await getClipBlob(currentIndex);
     if (!blob) return;
     replaying = true;
     baseIndex = latestResultsLen;      // descarta o que foi ouvido ate aqui
@@ -2012,9 +2053,10 @@
   // roda a previa (replay) do trecho recem-gravado automaticamente.
   // LIMPA a memoria de fala (baseIndex) no inicio E no fim: o audio da previa
   // sai pelos alto-falantes, volta pelo microfone e poluia o reconhecimento
-  function startAutoPreview() {
-    const blob = recordings[currentIndex];
-    if (!blob || phoneRecMode) return; // nada pra prever (ex: celular grava local)
+  async function startAutoPreview() {
+    if (phoneRecMode) return;          // celular grava local: nada pra prever
+    const blob = await getClipBlob(currentIndex);
+    if (!blob) return;
     // previa desligada nas preferencias: vai direto pra decisao gigante
     if (previewPref === 'off') {
       enterReplayUi('decide');
@@ -2631,6 +2673,80 @@
     for (const k in badClips) delete badClips[k];
   }
 
+  // ---------------------------------------------------------------
+  // memoria leve: depois que o trecho aprovado e salvo, o video SAI da
+  // RAM e vai pro IndexedDB (disco). recordings[idx] vira um marcador
+  // leve ({inDb:true}) e o blob e relido do disco so na hora de usar
+  // (replay, carrossel, baixar tudo, .srt). sem isso, uma sessao longa
+  // acumulava GBs de video na memoria e as ultimas gravacoes travavam
+  // ---------------------------------------------------------------
+  let clipDb = null;
+  function openClipDb() {
+    return new Promise((resolve) => {
+      if (clipDb) { resolve(clipDb); return; }
+      let req;
+      try { req = indexedDB.open('kineprompt-clips', 1); }
+      catch (e) { resolve(null); return; }
+      req.onupgradeneeded = () => req.result.createObjectStore('clips');
+      req.onsuccess = () => { clipDb = req.result; resolve(clipDb); };
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
+    });
+  }
+  function idbPutClip(idx, blob) {
+    return openClipDb().then(db => new Promise((resolve) => {
+      if (!db) { resolve(false); return; }
+      try {
+        const tx = db.transaction('clips', 'readwrite');
+        tx.objectStore('clips').put(blob, idx);
+        tx.oncomplete = () => resolve(true);
+        tx.onabort = tx.onerror = () => resolve(false);
+      } catch (e) { resolve(false); }
+    }));
+  }
+  function idbGetClip(idx) {
+    return openClipDb().then(db => new Promise((resolve) => {
+      if (!db) { resolve(null); return; }
+      try {
+        const req = db.transaction('clips').objectStore('clips').get(idx);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      } catch (e) { resolve(null); }
+    }));
+  }
+  function idbDeleteClip(idx) {
+    openClipDb().then(db => {
+      if (!db) return;
+      try { db.transaction('clips', 'readwrite').objectStore('clips').delete(idx); }
+      catch (e) {}
+    });
+  }
+  function idbClearClips() {
+    openClipDb().then(db => {
+      if (!db) return;
+      try { db.transaction('clips', 'readwrite').objectStore('clips').clear(); }
+      catch (e) {}
+    });
+  }
+
+  // devolve o Blob do trecho idx, esteja na RAM (recem-gravado) ou ja no disco
+  async function getClipBlob(idx) {
+    const r = recordings[idx];
+    if (!r) return null;
+    if (r instanceof Blob) return r;
+    return await idbGetClip(idx);
+  }
+
+  // move o blob da RAM pro disco. se o IndexedDB falhar (modo anonimo,
+  // disco cheio), o blob simplesmente continua na RAM como antes
+  async function offloadClip(idx, blob) {
+    if (recordings[idx] !== blob) return;        // regravaram por cima
+    if (!(await idbPutClip(idx, blob))) return;  // sem IDB: fica na RAM
+    if (recordings[idx] === blob) {
+      recordings[idx] = { inDb: true, size: blob.size, type: blob.type };
+    }
+  }
+
   // trecho APROVADO: valida e ja baixa sozinho pro computador. regravacao
   // vira trecho-NN-take2, take3... (o arquivo antigo fica como backup;
   // vale sempre o take de numero maior)
@@ -2683,10 +2799,12 @@
     const audioStat = { rms: takeMaxRms, samples: takeRmsSamples }; // captura antes do proximo take zerar
     rec.onstop = () => {
       if (keep && rec._chunks.length) {
-        recordings[index] = new Blob(rec._chunks, { type: rec.mimeType || 'video/webm' });
+        const blobNovo = new Blob(rec._chunks, { type: rec.mimeType || 'video/webm' });
+        recordings[index] = blobNovo;
         savedIdx.delete(index); // take novo ainda nao esta em disco
         updatePlayButton();
-        autoSaveClip(index, recordings[index], audioStat); // seguranca: salva sozinho, em paralelo
+        // seguranca: salva sozinho e depois tira o video da RAM (vai pro disco)
+        autoSaveClip(index, blobNovo, audioStat).then(() => offloadClip(index, blobNovo));
       }
       if (onSaved) onSaved(); // video pronto (blob disponivel)
     };
@@ -2726,6 +2844,7 @@
   function removeClip(idx) {
     if (!recordings[idx]) return;
     recordings[idx] = undefined;
+    idbDeleteClip(idx);
     savedIdx.delete(idx);
     delete badClips[idx];
     updatePlayButton();
@@ -2790,8 +2909,9 @@
     });
   }
 
-  function playSingleClip(idx) {
-    if (!recordings[idx]) return;
+  async function playSingleClip(idx) {
+    const blob = await getClipBlob(idx);
+    if (!blob) return;
     if (isListening) stopRecognition();
     playerEl.style.display = 'block';
     previewEl.style.display = 'none';
@@ -2801,7 +2921,7 @@
       if (recordStream) previewEl.style.display = 'block';
     };
     playerEl.playbackRate = 1; // revisao toca em velocidade normal
-    playerEl.src = URL.createObjectURL(recordings[idx]);
+    playerEl.src = URL.createObjectURL(blob);
     playerEl.play();
   }
 
@@ -3245,7 +3365,7 @@
     localStorage.setItem(SCRIPT_KEY, text);
     lastScriptText = text;
     roteiro = novo;
-    recordings.length = 0; poses.length = 0; resetClipSafety(); updatePlayButton();
+    recordings.length = 0; poses.length = 0; idbClearClips(); resetClipSafety(); updatePlayButton();
     currentIndex = 0; peekIndex = null; awaitingReady = false;
     readyPrompt.style.display = 'none';
     hideGhost();
@@ -3296,7 +3416,8 @@
     let t = 0, n = 1;
     const out = [];
     for (const i of idxs) {
-      const d = (await blobDuration(recordings[i])) || 3; // fallback: 3s
+      const b = await getClipBlob(i);
+      const d = (b && await blobDuration(b)) || 3; // fallback: 3s
       out.push(n++ + '\n' + srtTime(t) + ' --> ' + srtTime(t + d) + '\n' + roteiro[i].text + '\n');
       t += d;
     }
@@ -3326,7 +3447,9 @@
       n++;
       btnDownloadAll.textContent = 'Baixando ' + n + ' de ' + idxs.length + '…';
       statusText.textContent = 'Baixando trecho ' + n + ' de ' + idxs.length + '…';
-      const via = await saveVideoBlob(recordings[i], 'trecho-' + pad(i + 1) + '.' + videoExt());
+      const b = await getClipBlob(i);
+      if (!b) continue;
+      const via = await saveVideoBlob(b, 'trecho-' + pad(i + 1) + '.' + videoExt());
       // respiro entre downloads pro navegador nao engolir nenhum da sequencia
       if (via === 'download') await new Promise(r => setTimeout(r, 400));
     }
@@ -3344,7 +3467,7 @@
   function playRecordings() {
     const segs = [];
     for (let i = 0; i < roteiro.length; i++) {
-      if (recordings[i]) segs.push({ idx: i, blob: recordings[i] });
+      if (recordings[i]) segs.push({ idx: i });
     }
     if (!segs.length) return;
     if (isListening) stopRecognition();
@@ -3360,19 +3483,21 @@
       playNextSeg();
     };
 
-    function playNextSeg() {
+    async function playNextSeg() {
       if (p >= segs.length) {
         statusText.textContent = "Reproducao concluida";
         setTimeout(() => { playerEl.style.display = 'none'; }, 1500);
         return;
       }
       const seg = segs[p++];
+      const blob = await getClipBlob(seg.idx); // relido do disco na hora de tocar
+      if (!blob) { playNextSeg(); return; }
       currentIndex = seg.idx;      // reusa o destaque de frase ativa
       renderScript();
       scrollToActive();
       statusText.textContent = "Reproduzindo video (" + p + "/" + segs.length + ")...";
       playerEl.playbackRate = 1;
-      playerEl.src = URL.createObjectURL(seg.blob);
+      playerEl.src = URL.createObjectURL(blob);
       playerEl.play();
     }
 
@@ -3811,6 +3936,26 @@
   setupPhoneBtn.addEventListener('click', openPhoneCamera);
   btnPhone.addEventListener('click', openPhoneCamera);
   btnSrt.addEventListener('click', downloadSrt);
+  // menu de ferramentas: abre/fecha; clique fora fecha; acoes de um tiro
+  // (exportar/importar/dividir/celular) fecham sozinhas apos o clique
+  const btnTools = document.getElementById('btn-tools');
+  const toolsMenu = document.getElementById('tools-menu');
+  function closeToolsMenu() {
+    toolsMenu.classList.remove('open');
+    btnTools.classList.remove('open');
+  }
+  btnTools.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toolsMenu.classList.toggle('open');
+    btnTools.classList.toggle('open', toolsMenu.classList.contains('open'));
+  });
+  document.addEventListener('click', (e) => {
+    if (!toolsMenu.classList.contains('open')) return;
+    if (!e.target.closest('#tools-wrap')) closeToolsMenu();
+  });
+  [btnPhone, btnExport, btnImport, btnSplit].forEach(b =>
+    b.addEventListener('click', closeToolsMenu));
+
   btnExport.addEventListener('click', exportScript);
   btnImport.addEventListener('click', () => importFile.click());
   // divide os blocos pela pontuacao SOB DEMANDA (a quebra automatica acabou)
@@ -4151,6 +4296,7 @@
   // 5. Init
   // ---------------------------------------------------------------
   setLayout(localStorage.getItem('kineprompt_layout') || 'top');
+  idbClearClips(); // videos de sessoes passadas ja foram baixados: limpa o disco
   renderScript();
   loadTargetWords();
   showEditor();    // comeca no modo de edicao inline
