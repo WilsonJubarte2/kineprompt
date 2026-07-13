@@ -162,7 +162,9 @@
     background: #101015;
     border-bottom: 1px solid var(--line);
   }
-  .pb-seg { flex: 1; height: 6px; border-radius: 99px; background: #26262f; }
+  .pb-seg { flex: 1; height: 6px; border-radius: 99px; background: #26262f; cursor: pointer; }
+  .pb-seg:hover { background: #3a3a48; }
+  .pb-seg.rec:hover { background: #45e08a; }
   .pb-seg.rec { background: #2ecc71; }
   .pb-seg.cur { box-shadow: 0 0 0 2px var(--brand); background: #3a3a46; }
   .pb-seg.cur.rec { background: #2ecc71; }
@@ -1073,7 +1075,7 @@
     <button id="btn-next" class="tb-btn icon" title="Pular frase (→)">→</button>
     <button id="btn-toggle" class="tb-btn primary">▶ Iniciar</button>
     <button id="btn-play" class="tb-btn" title="Ver gravação" hidden>🎬</button>
-    <button id="btn-clips" class="tb-btn" title="Trechos gravados" hidden>🎞</button>
+    <button id="btn-clips" class="tb-btn" title="Seus trechos: gravar um específico, rever, regravar, baixar">🎞 Trechos</button>
   </div>
 </div>
 
@@ -1569,6 +1571,8 @@
       const seg = document.createElement('div');
       seg.className = 'pb-seg' + (recordings[i] ? ' rec' : '') + (i === shown ? ' cur' : '');
       seg.title = (i + 1) + '. ' + f.text;
+      // clique no segmento escolhe a frase (parado; gravando, nao atrapalha)
+      seg.onclick = () => { if (!isListening && !previewing) goToSentence(i); };
       progressBarEl.appendChild(seg);
     });
   }
@@ -2818,7 +2822,8 @@
   function updatePlayButton() {
     const has = hasAnyRecording();
     btnPlay.hidden = !has;
-    btnClips.hidden = !has;
+    // btn-clips fica SEMPRE visivel: o carrossel tambem serve pra ESCOLHER
+    // uma frase e gravar so ela (mesmo sem nada gravado ainda)
     renderProgressBar();
     if (clipsPanel.classList.contains('visible')) renderClips();
   }
@@ -2899,7 +2904,10 @@
       const btns = document.createElement('div');
       btns.className = 'clip-btns';
       btns.appendChild(mkClipBtn('▶', 'Ver este vídeo', !has, () => playSingleClip(idx)));
-      const bRedo = mkClipBtn('↺', 'Regravar esta frase', false, () => redoSentence(idx));
+      // sem gravacao: o mesmo fluxo vira "gravar so esta frase"
+      const bRedo = mkClipBtn(has ? '↺' : '🎥 Gravar',
+        has ? 'Regravar esta frase' : 'Gravar só esta frase',
+        false, () => redoSentence(idx));
       bRedo.classList.add('redo');
       btns.appendChild(bRedo);
       btns.appendChild(mkClipBtn('🗑', 'Remover esta gravação', !has, () => removeClip(idx)));
@@ -2960,7 +2968,8 @@
       currentMatchCount = 0;
       lastProgressTime = Date.now();
       startSegment();
-      statusText.textContent = "Refazendo frase " + (currentIndex + 1) + "...";
+      statusText.textContent = (recordings[currentIndex] ? 'Refazendo' : 'Gravando') +
+        ' frase ' + (currentIndex + 1) + '...';
     });
   }
 
