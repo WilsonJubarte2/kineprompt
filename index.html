@@ -2894,16 +2894,11 @@
         const blobNovo = new Blob(rec._chunks, { type: rec.mimeType || 'video/webm' });
         recordings[index] = blobNovo;
         savedIdx.delete(index); // take novo ainda nao esta em disco
+        // duracao = relogio de parede do take (inicio->fim da gravacao).
+        // NAO usar blobDuration aqui: o seek gigante decodifica o video
+        // inteiro e engasga PC fraco bem na hora da previa/salvamento
         if (tookSec) clipDurations[index] = tookSec;
         updateRecTotal();
-        // duracao exata do video (mais precisa que o relogio de parede);
-        // so aplica se ninguem regravou por cima enquanto media
-        blobDuration(blobNovo).then((d) => {
-          const cur = recordings[index];
-          if (d > 0 && cur && (cur === blobNovo || cur.size === blobNovo.size)) {
-            clipDurations[index] = d; updateRecTotal();
-          }
-        });
         updatePlayButton();
         // seguranca: salva sozinho e depois tira o video da RAM (vai pro disco)
         autoSaveClip(index, blobNovo, audioStat).then(() => offloadClip(index, blobNovo));
@@ -4415,7 +4410,7 @@
   // nova, mostra uma barra discreta pedindo pra recarregar (o cache do
   // navegador costuma segurar a versao antiga)
   // ---------------------------------------------------------------
-  const APP_VERSION = '2026-07-15.1';
+  const APP_VERSION = '2026-07-15.2';
   setTimeout(async () => {
     try {
       const r = await fetch(location.pathname + '?nocache=' + Date.now(), { cache: 'no-store' });
