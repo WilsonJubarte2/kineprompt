@@ -2925,14 +2925,17 @@
     return h ? h + ':' + p(m) + ':' + p(s) : m + ':' + p(s);
   }
 
-  // pilula no topo central: soma dos takes aprovados + take ao vivo (vermelho)
+  // pilula no topo central: soma dos takes aprovados + take ao vivo (vermelho).
+  // try/catch: o contador e so informativo - erro nele NUNCA pode travar a gravacao
   function updateRecTotal() {
-    let total = 0;
-    for (const k in clipDurations) total += clipDurations[k];
-    recTotalEl.hidden = !(total > 0 || segRecording);
-    rtTimeEl.textContent = fmtClock(total);
-    rtLiveEl.hidden = !segRecording;
-    if (segRecording) rtLiveEl.textContent = '+' + fmtClock((Date.now() - segStartAt) / 1000);
+    try {
+      let total = 0;
+      for (const k in clipDurations) total += clipDurations[k];
+      recTotalEl.hidden = !(total > 0 || segRecording);
+      rtTimeEl.textContent = fmtClock(total);
+      rtLiveEl.hidden = !segRecording;
+      if (segRecording) rtLiveEl.textContent = '+' + fmtClock((Date.now() - segStartAt) / 1000);
+    } catch (e) { console.warn('contador de tempo', e); }
   }
   setInterval(updateRecTotal, 500); // mantem o contador ao vivo andando
 
@@ -4412,7 +4415,7 @@
   // nova, mostra uma barra discreta pedindo pra recarregar (o cache do
   // navegador costuma segurar a versao antiga)
   // ---------------------------------------------------------------
-  const APP_VERSION = '2026-07-07.2';
+  const APP_VERSION = '2026-07-15.1';
   setTimeout(async () => {
     try {
       const r = await fetch(location.pathname + '?nocache=' + Date.now(), { cache: 'no-store' });
