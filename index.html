@@ -166,6 +166,23 @@
   .pb-seg:hover { background: #3a3a48; }
   .pb-seg.rec:hover { background: #45e08a; }
   .pb-seg.rec { background: #2ecc71; }
+
+  /* pilula no topo central do palco: tempo total ja gravado corretamente */
+  #rec-total {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 40; pointer-events: none;
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 14px; border-radius: 999px;
+    background: rgba(12,12,18,0.78); border: 1px solid var(--line-2);
+    backdrop-filter: blur(6px);
+    font-size: 14px; font-weight: 700; color: #fff;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  }
+  #rec-total[hidden] { display: none; }
+  #rec-total .rt-label { color: var(--fg-dim); font-weight: 500; font-size: 12px; }
+  #rec-total .rt-live { color: #ff6b6b; font-weight: 600; font-size: 13px; }
+  #rec-total .rt-live::before { content: '●'; margin-right: 4px; display: inline-block; animation: pulse 1.2s infinite; }
   .pb-seg.cur { box-shadow: 0 0 0 2px var(--brand); background: #3a3a46; }
   .pb-seg.cur.rec { background: #2ecc71; }
 
@@ -184,6 +201,7 @@
   #stage {
     flex: 1 1 auto;
     min-height: 0;
+    position: relative; /* ancora da pilula de tempo gravado (#rec-total) */
     display: flex;
     flex-direction: column;
   }
@@ -1143,6 +1161,10 @@
 
 <!-- palco: camera em cima, texto embaixo, na mesma coluna (sem sobrepor) -->
 <div id="stage">
+  <!-- tempo total ja gravado corretamente (soma dos trechos aprovados) -->
+  <div id="rec-total" hidden>
+    <span class="rt-label">Gravado</span><span id="rt-time">0:00</span><span class="rt-live" id="rt-live" hidden></span>
+  </div>
   <div id="camera-band">
     <div id="camera-frame">
       <video id="preview" muted playsinline></video>
@@ -1520,6 +1542,9 @@
   const savedIdx = new Set(); // indices ja baixados (auto ou manual)
   const takeCount = {};       // idx -> numero do take (regravacao vira -take2)
   const badClips = {};        // idx -> true se o video gravado veio com defeito
+  const clipDurations = {};   // idx -> segundos do take aprovado (soma = tempo total gravado)
+  let segStartAt = 0;         // inicio do take atual (relogio do contador ao vivo)
+  let segRecording = false;   // take em andamento agora
   // dispositivos escolhidos (persistem entre sessoes)
   let selectedCamId = localStorage.getItem('kineprompt_cam') || null;
   let selectedMicId = localStorage.getItem('kineprompt_mic') || null;
@@ -1548,6 +1573,9 @@
   const successOverlay = document.getElementById('success-overlay');
   const successCountdownEl = document.getElementById('success-countdown');
   const progressCounterEl = document.getElementById('progress-counter');
+  const recTotalEl = document.getElementById('rec-total');
+  const rtTimeEl = document.getElementById('rt-time');
+  const rtLiveEl = document.getElementById('rt-live');
   const btnPrev = document.getElementById('btn-prev');
   const btnNext = document.getElementById('btn-next');
   const btnRestart = document.getElementById('btn-restart');
@@ -1829,6 +1857,7 @@
   // tela de revisao (ver 1 a 1, remover, regravar, baixar tudo)
   function finishAndReview() {
     isListening = false; // impede o startSegment do callback de confirmReady
+    segRecording = false; updateRecTotal(); // para o contador ao vivo
     releaseWakeLock();
     if (speechMode && recognition) { try { recognition.stop(); } catch (e) {} }
     if (phoneRecMode) sendPhone({ cmd: 'finish' });
@@ -2718,6 +2747,8 @@
     savedIdx.clear();
     for (const k in takeCount) delete takeCount[k];
     for (const k in badClips) delete badClips[k];
+    for (const k in clipDurations) delete clipDurations[k];
+    updateRecTotal();
   }
 
   // ---------------------------------------------------------------
@@ -2804,6 +2835,8 @@
     const ok = await validateClip(blob);
     badClips[idx] = !ok;
     if (!ok) {
+      delete clipDurations[idx]; // defeituoso nao conta como "gravado corretamente"
+      updateRecTotal();
       showAlert('⚠ O vídeo da frase ' + (idx + 1) + ' saiu com defeito — REGRAVE essa frase! (clique para fechar)', true);
       if (clipsPanel.classList.contains('visible')) renderClips();
       return;
@@ -2825,8 +2858,12 @@
   // comeca a gravar (video) a frase atual do zero
   function startSegment() {
     // modo celular: o aparelho grava local (qualidade cheia); PC so comanda
-    if (phoneRecMode) { sendPhone({ cmd: 'start', idx: currentIndex }); return; }
+    if (phoneRecMode) {
+      segStartAt = Date.now(); segRecording = true; updateRecTotal();
+      sendPhone({ cmd: 'start', idx: currentIndex }); return;
+    }
     if (!recordStream) return;
+    segStartAt = Date.now(); segRecording = true; updateRecTotal();
     takeMaxRms = 0; takeRmsSamples = 0; // zera o medidor de audio do take
     const chunks = [];
     const rec = makeRecorder(recordStream); // alta qualidade (25 Mbps)
@@ -2839,7 +2876,15 @@
   // encerra a gravacao do segmento atual; keep=true vincula o video a frase
   // (index), keep=false descarta. o blob so fica pronto no onstop (async).
   function finalizeSegment(index, keep, onSaved) {
-    if (phoneRecMode) { sendPhone({ cmd: keep ? 'keep' : 'discard', idx: index }); if (onSaved) onSaved(); return; }
+    // relogio de parede do take (fallback; no PC a duracao real do blob corrige depois)
+    const tookSec = segRecording ? (Date.now() - segStartAt) / 1000 : 0;
+    segRecording = false;
+    if (phoneRecMode) {
+      sendPhone({ cmd: keep ? 'keep' : 'discard', idx: index });
+      if (keep && tookSec) clipDurations[index] = tookSec;
+      updateRecTotal();
+      if (onSaved) onSaved(); return;
+    }
     const rec = mediaRecorder;
     mediaRecorder = null;
     if (!rec || rec.state === 'inactive') { if (onSaved) onSaved(); return; }
@@ -2849,6 +2894,16 @@
         const blobNovo = new Blob(rec._chunks, { type: rec.mimeType || 'video/webm' });
         recordings[index] = blobNovo;
         savedIdx.delete(index); // take novo ainda nao esta em disco
+        if (tookSec) clipDurations[index] = tookSec;
+        updateRecTotal();
+        // duracao exata do video (mais precisa que o relogio de parede);
+        // so aplica se ninguem regravou por cima enquanto media
+        blobDuration(blobNovo).then((d) => {
+          const cur = recordings[index];
+          if (d > 0 && cur && (cur === blobNovo || cur.size === blobNovo.size)) {
+            clipDurations[index] = d; updateRecTotal();
+          }
+        });
         updatePlayButton();
         // seguranca: salva sozinho e depois tira o video da RAM (vai pro disco)
         autoSaveClip(index, blobNovo, audioStat).then(() => offloadClip(index, blobNovo));
@@ -2861,6 +2916,25 @@
   function hasAnyRecording() {
     return recordings.some(Boolean);
   }
+
+  // relogio "m:ss" (ou "h:mm:ss") pro contador de tempo gravado
+  function fmtClock(sec) {
+    sec = Math.max(0, Math.round(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, s = sec % 60;
+    const p = (n) => String(n).padStart(2, '0');
+    return h ? h + ':' + p(m) + ':' + p(s) : m + ':' + p(s);
+  }
+
+  // pilula no topo central: soma dos takes aprovados + take ao vivo (vermelho)
+  function updateRecTotal() {
+    let total = 0;
+    for (const k in clipDurations) total += clipDurations[k];
+    recTotalEl.hidden = !(total > 0 || segRecording);
+    rtTimeEl.textContent = fmtClock(total);
+    rtLiveEl.hidden = !segRecording;
+    if (segRecording) rtLiveEl.textContent = '+' + fmtClock((Date.now() - segStartAt) / 1000);
+  }
+  setInterval(updateRecTotal, 500); // mantem o contador ao vivo andando
 
   function updatePlayButton() {
     const has = hasAnyRecording();
@@ -2895,6 +2969,8 @@
     idbDeleteClip(idx);
     savedIdx.delete(idx);
     delete badClips[idx];
+    delete clipDurations[idx];
+    updateRecTotal();
     updatePlayButton();
     renderClips();
   }
